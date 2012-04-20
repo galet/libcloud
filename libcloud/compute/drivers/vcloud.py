@@ -47,6 +47,11 @@ DEFAULT_TASK_COMPLETION_TIMEOUT = 600
 
 DEFAULT_API_VERSION = '0.8'
 
+"""
+Valid vCloud API v1.5 VirtualQuantity elements for vApp VM Memory and CPU.
+"""
+VIRTUAL_CPU_VALS_1_5 = [i for i in range(1,9)]
+VIRTUAL_MEMORY_VALS_1_5 = [2**i for i in range(2,19)]
 
 def fixxpath(root, xpath):
     """ElementTree wants namespaces in its xpaths, so here we add them."""
@@ -175,7 +180,7 @@ class InstantiateVAppXML(object):
     def _add_memory(self, parent):
         mem_item = ET.SubElement(
             parent,
-            "Item",
+            'Item',
             {'xmlns': "http://schemas.dmtf.org/ovf/envelope/1"}
         )
         self._add_instance_id(mem_item, '2')
@@ -187,7 +192,7 @@ class InstantiateVAppXML(object):
     def _add_instance_id(self, parent, id):
         elm = ET.SubElement(
             parent,
-            "InstanceID",
+            'InstanceID',
             {'xmlns': 'http://schemas.dmtf.org/wbem/wscim/1/cim-schema/2/CIM_ResourceAllocationSettingData'}
         )
         elm.text = id
@@ -196,7 +201,7 @@ class InstantiateVAppXML(object):
     def _add_resource_type(self, parent, type):
         elm = ET.SubElement(
             parent,
-            "ResourceType",
+            'ResourceType',
             {'xmlns': 'http://schemas.dmtf.org/wbem/wscim/1/cim-schema/2/CIM_ResourceAllocationSettingData'}
         )
         elm.text = type
@@ -205,7 +210,7 @@ class InstantiateVAppXML(object):
     def _add_virtual_quantity(self, parent, amount):
         elm = ET.SubElement(
              parent,
-             "VirtualQuantity",
+             'VirtualQuantity',
              {'xmlns': 'http://schemas.dmtf.org/wbem/wscim/1/cim-schema/2/CIM_ResourceAllocationSettingData'}
          )
         elm.text = amount
@@ -214,7 +219,7 @@ class InstantiateVAppXML(object):
     def _add_network_association(self, parent):
         return ET.SubElement(
             parent,
-            "NetworkAssociation",
+            'NetworkAssociation',
             {'href': self.net_href}
         )
 
@@ -285,7 +290,7 @@ class VCloudNodeDriver(NodeDriver):
     """
 
     type = Provider.VCLOUD
-    name = "vCloud"
+    name = 'vCloud'
     connectionCls = VCloudConnection
     org = None
     _vdcs = None
@@ -334,7 +339,7 @@ class VCloudNodeDriver(NodeDriver):
             networks.extend(
                 [network
                  for network in res.findall(
-                     fixxpath(res, "AvailableNetworks/Network")
+                     fixxpath(res, 'AvailableNetworks/Network')
                  )]
             )
 
@@ -438,13 +443,13 @@ class VCloudNodeDriver(NodeDriver):
             pass
 
         res = self.connection.request(node_path, method='DELETE')
-        return res.status == 202
+        return res.status == httplib.ACCEPTED
 
     def reboot_node(self, node):
         res = self.connection.request('%s/power/action/reset'
                                       % get_url_path(node.id),
                                       method='POST')
-        return res.status == 202 or res.status == 204
+        return res.status in [httplib.ACCEPTED, httplib.NO_CONTENT]
 
     def list_nodes(self):
         nodes = []
@@ -837,13 +842,13 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
             pass
 
         res = self.connection.request(get_url_path(node.id), method='DELETE')
-        return res.status == 202
+        return res.status == httplib.ACCEPTED
 
     def reboot_node(self, node):
         res = self.connection.request('%s/power/action/reset'
                                       % get_url_path(node.id),
                                       method='POST')
-        if res.status == 202 or res.status == 204:
+        if res.status in [httplib.ACCEPTED, httplib.NO_CONTENT]:
             self._wait_for_task_completion(res.object.get('href'))
             return True
         else:
@@ -928,13 +933,22 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
                                  long and follow the host name requirements
         @type       ex_vm_names: C{list} of L{string}
 
+        @keyword    ex_vm_cpu: number of virtual CPUs/cores to allocate for each vApp VM 
+        @type       ex_vm_cpu: C{number} 
+        
+        @keyword    ex_vm_memory: amount of memory in MB to allocate for each vApp VM
+        @type       ex_vm_memory: C{number} 
         """
         name = kwargs['name']
         image = kwargs['image']
         size = kwargs.get('size', None)
         ex_vm_names = kwargs.get('ex_vm_names')
+        ex_vm_cpu = kwargs.get('ex_vm_cpu')
+        ex_vm_memory = kwargs.get('ex_vm_memory')
 
         self._validate_vm_names(ex_vm_names)
+        self._validate_vm_cpu(ex_vm_cpu)
+        self._validate_vm_memory(ex_vm_memory)
 
         # Some providers don't require a network link
         network_href = kwargs.get('ex_network', None)
@@ -953,6 +967,8 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
             vapp_name, vapp_href = self._instantiate_node(name, image, network_elem, vdc)
 
         self._change_vm_names(vapp_href, ex_vm_names)
+        self._change_vm_cpu(vapp_href, ex_vm_cpu)
+        self._change_vm_memory(vapp_href, ex_vm_memory)
 
         # Power on the VM.
         # Retry 3 times: when instantiating large number of VMs at the same time some may fail on resource allocation
@@ -1068,6 +1084,20 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
                 raise ValueError('The VM name "' + name + '" is too long for the computer name (max 15 chars allowed).')
             if not hname_re.match(name):
                 raise ValueError('The VM name "' + name + '" can not be used. "' + name + '" is not a valid computer name for the VM.')
+            
+    @staticmethod
+    def _validate_vm_memory(vm_memory):
+        if vm_memory is None:
+            return
+        elif vm_memory not in VIRTUAL_MEMORY_VALS_1_5:
+            raise ValueError('%s is not a valid vApp VM memory value', vm_memory)
+        
+    @staticmethod
+    def _validate_vm_cpu(vm_cpu):
+        if vm_cpu is None:
+            return
+        elif vm_cpu not in VIRTUAL_CPU_VALS_1_5:
+            raise ValueError('%s is not a valid vApp VM CPU value', vm_cpu)
 
     def _change_vm_names(self, vapp_href, vm_names):
         if vm_names is None:
@@ -1106,6 +1136,51 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
                                           headers={'Content-Type': 'application/vnd.vmware.vcloud.vm+xml'}
             )
             self._wait_for_task_completion(res.object.get('href'))
+            
+    def _change_vm_cpu(self, vapp_href, vm_cpu):
+        if vm_cpu is None:
+            return
+        
+        res = self.connection.request(vapp_href)
+        vms = res.object.findall(fixxpath(res.object, 'Children/Vm'))
+        
+        for vm in vms:
+            # Get virtualHardwareSection/cpu section
+            res = self.connection.request('%s/virtualHardwareSection/cpu' % get_url_path(vm.get('href')))
+            
+            # Update VirtualQuantity field
+            res.object.find(
+                '{http://schemas.dmtf.org/wbem/wscim/1/cim-schema/2/CIM_ResourceAllocationSettingData}VirtualQuantity'
+            ).text = str(vm_cpu)
+            res = self.connection.request('%s/virtualHardwareSection/cpu' % get_url_path(vm.get('href')),
+                                          data=ET.tostring(res.object),
+                                          method='PUT',
+                                          headers={'Content-Type': 'application/vnd.vmware.vcloud.rasdItem+xml'}
+            )
+            self._wait_for_task_completion(res.object.get('href'))
+        return
+    
+    def _change_vm_memory(self, vapp_href, vm_memory):
+        if vm_memory is None:
+            return
+        
+        res = self.connection.request(vapp_href)
+        vms = res.object.findall(fixxpath(res.object, 'Children/Vm'))
+        
+        for vm in vms:
+            # Get virtualHardwareSection/memory section
+            res = self.connection.request('%s/virtualHardwareSection/memory' % get_url_path(vm.get('href')))
+            
+            # Update VirtualQuantity field
+            res.object.find(
+                '{http://schemas.dmtf.org/wbem/wscim/1/cim-schema/2/CIM_ResourceAllocationSettingData}VirtualQuantity'
+            ).text = str(vm_memory)
+            res = self.connection.request('%s/virtualHardwareSection/memory' % get_url_path(vm.get('href')),
+                                          data=ET.tostring(res.object),
+                                          method='PUT',
+                                          headers={'Content-Type': 'application/vnd.vmware.vcloud.rasdItem+xml'}
+            )
+        return
 
     def _is_node(self, node_or_image):
         return isinstance(node_or_image, Node)
