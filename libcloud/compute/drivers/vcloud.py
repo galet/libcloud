@@ -18,6 +18,7 @@ VMware vCloud driver.
 import sys
 import re
 import base64
+import os
 from libcloud.utils.py3 import httplib
 from libcloud.utils.py3 import urlparse
 from libcloud.utils.py3 import b
@@ -31,7 +32,7 @@ from xml.etree.ElementTree import _ElementInterface
 from xml.parsers.expat import ExpatError
 
 from libcloud.common.base import XmlResponse, ConnectionUserAndKey
-from libcloud.common.types import InvalidCredsError
+from libcloud.common.types import InvalidCredsError, LibcloudError
 from libcloud.compute.providers import Provider
 from libcloud.compute.types import NodeState
 from libcloud.compute.base import Node, NodeDriver, NodeLocation
@@ -938,6 +939,10 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
         
         @keyword    ex_vm_memory: amount of memory in MB to allocate for each vApp VM
         @type       ex_vm_memory: C{number} 
+        
+        @keyword    ex_vm_script: full path to file containing guest customisation script for each vApp VM.
+                                  Useful for creating users & pushing out public SSH keys etc. 
+        @type       ex_vm_script: C{string}
         """
         name = kwargs['name']
         image = kwargs['image']
@@ -945,10 +950,12 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
         ex_vm_names = kwargs.get('ex_vm_names')
         ex_vm_cpu = kwargs.get('ex_vm_cpu')
         ex_vm_memory = kwargs.get('ex_vm_memory')
-
+        ex_vm_script = kwargs.get('ex_vm_script')
+        
         self._validate_vm_names(ex_vm_names)
         self._validate_vm_cpu(ex_vm_cpu)
         self._validate_vm_memory(ex_vm_memory)
+        ex_vm_script = self._validate_vm_script(ex_vm_script)
 
         # Some providers don't require a network link
         network_href = kwargs.get('ex_network', None)
@@ -969,6 +976,7 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
         self._change_vm_names(vapp_href, ex_vm_names)
         self._change_vm_cpu(vapp_href, ex_vm_cpu)
         self._change_vm_memory(vapp_href, ex_vm_memory)
+        self._change_vm_script(vapp_href, ex_vm_script)
 
         # Power on the VM.
         # Retry 3 times: when instantiating large number of VMs at the same time some may fail on resource allocation
@@ -1098,6 +1106,22 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
             return
         elif vm_cpu not in VIRTUAL_CPU_VALS_1_5:
             raise ValueError('%s is not a valid vApp VM CPU value', vm_cpu)
+        
+    @staticmethod
+    def _validate_vm_script(vm_script):
+        if vm_script is None:
+            return
+        # Try to locate the script file
+        if not os.path.isabs(vm_script):
+            vm_script = os.path.expanduser(vm_script)
+            vm_script = os.path.abspath(vm_script)
+        if not os.path.isfile(vm_script):
+            raise LibcloudError("%s the VM script file does not exist", vm_script)
+        try:
+            open(vm_script).read()
+        except:
+            raise
+        return vm_script
 
     def _change_vm_names(self, vapp_href, vm_names):
         if vm_names is None:
@@ -1180,6 +1204,52 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
                                           method='PUT',
                                           headers={'Content-Type': 'application/vnd.vmware.vcloud.rasdItem+xml'}
             )
+            self._wait_for_task_completion(res.object.get('href'))
+        return
+    
+    def _change_vm_script(self, vapp_href, vm_script):
+        if vm_script is None:
+            return
+        
+        res = self.connection.request(vapp_href)
+        vms = res.object.findall(fixxpath(res.object, 'Children/Vm'))
+        try:
+            script = open(vm_script).read()
+        except:
+            return
+        
+        # ElementTree escapes script characters automatically. Escape requirements:
+        # http://www.vmware.com/support/vcd/doc/rest-api-doc-1.5-html/types/GuestCustomizationSectionType.html
+        for vm in vms:
+            # Get GuestCustomizationSection
+            res = self.connection.request('%s/guestCustomizationSection' % get_url_path(vm.get('href')))
+            
+            # Attempt to update any existing CustomizationScript element
+            try:
+                res.object.find(fixxpath(res.object, 'CustomizationScript')).text = script
+            except:
+                # CustomizationScript section does not exist, insert it just before ComputerName
+                for i, e in enumerate(res.object):
+                    if e.tag == '{http://www.vmware.com/vcloud/v1.5}ComputerName':
+                        break
+                e = ET.Element('{http://www.vmware.com/vcloud/v1.5}CustomizationScript')
+                e.text = script
+                res.object.insert(i, e)
+                
+            # Remove AdminPassword from customization section due to an API quirk
+            admin_pass = res.object.find(fixxpath(res.object, 'AdminPassword'))
+            if admin_pass is not None:
+                res.object.remove(admin_pass)
+            
+            # Update VM's GuestCustomizationSection
+            res = self.connection.request('%s/guestCustomizationSection' % get_url_path(vm.get('href')),
+                                          data=ET.tostring(res.object),
+                                          method='PUT',
+                                          headers={'Content-Type':
+                                                   'application/vnd.vmware.vcloud.guestCustomizationSection+xml'
+                                          }
+            )
+            self._wait_for_task_completion(res.object.get('href'))
         return
 
     def _is_node(self, node_or_image):
