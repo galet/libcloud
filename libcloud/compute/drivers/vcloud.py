@@ -934,14 +934,14 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
                                  long and follow the host name requirements
         @type       ex_vm_names: C{list} of L{string}
 
-        @keyword    ex_vm_cpu: number of virtual CPUs/cores to allocate for each vApp VM 
-        @type       ex_vm_cpu: C{number} 
-        
+        @keyword    ex_vm_cpu: number of virtual CPUs/cores to allocate for each vApp VM
+        @type       ex_vm_cpu: C{number}
+
         @keyword    ex_vm_memory: amount of memory in MB to allocate for each vApp VM
-        @type       ex_vm_memory: C{number} 
-        
+        @type       ex_vm_memory: C{number}
+
         @keyword    ex_vm_script: full path to file containing guest customisation script for each vApp VM.
-                                  Useful for creating users & pushing out public SSH keys etc. 
+                                  Useful for creating users & pushing out public SSH keys etc.
         @type       ex_vm_script: C{string}
         """
         name = kwargs['name']
@@ -951,7 +951,7 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
         ex_vm_cpu = kwargs.get('ex_vm_cpu')
         ex_vm_memory = kwargs.get('ex_vm_memory')
         ex_vm_script = kwargs.get('ex_vm_script')
-        
+
         self._validate_vm_names(ex_vm_names)
         self._validate_vm_cpu(ex_vm_cpu)
         self._validate_vm_memory(ex_vm_memory)
@@ -1092,21 +1092,21 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
                 raise ValueError('The VM name "' + name + '" is too long for the computer name (max 15 chars allowed).')
             if not hname_re.match(name):
                 raise ValueError('The VM name "' + name + '" can not be used. "' + name + '" is not a valid computer name for the VM.')
-            
+
     @staticmethod
     def _validate_vm_memory(vm_memory):
         if vm_memory is None:
             return
         elif vm_memory not in VIRTUAL_MEMORY_VALS_1_5:
             raise ValueError('%s is not a valid vApp VM memory value', vm_memory)
-        
+
     @staticmethod
     def _validate_vm_cpu(vm_cpu):
         if vm_cpu is None:
             return
         elif vm_cpu not in VIRTUAL_CPU_VALS_1_5:
             raise ValueError('%s is not a valid vApp VM CPU value', vm_cpu)
-        
+
     @staticmethod
     def _validate_vm_script(vm_script):
         if vm_script is None:
@@ -1160,18 +1160,18 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
                                           headers={'Content-Type': 'application/vnd.vmware.vcloud.vm+xml'}
             )
             self._wait_for_task_completion(res.object.get('href'))
-            
+
     def _change_vm_cpu(self, vapp_href, vm_cpu):
         if vm_cpu is None:
             return
-        
+
         res = self.connection.request(vapp_href)
         vms = res.object.findall(fixxpath(res.object, 'Children/Vm'))
-        
+
         for vm in vms:
             # Get virtualHardwareSection/cpu section
             res = self.connection.request('%s/virtualHardwareSection/cpu' % get_url_path(vm.get('href')))
-            
+
             # Update VirtualQuantity field
             res.object.find(
                 '{http://schemas.dmtf.org/wbem/wscim/1/cim-schema/2/CIM_ResourceAllocationSettingData}VirtualQuantity'
@@ -1183,18 +1183,18 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
             )
             self._wait_for_task_completion(res.object.get('href'))
         return
-    
+
     def _change_vm_memory(self, vapp_href, vm_memory):
         if vm_memory is None:
             return
-        
+
         res = self.connection.request(vapp_href)
         vms = res.object.findall(fixxpath(res.object, 'Children/Vm'))
-        
+
         for vm in vms:
             # Get virtualHardwareSection/memory section
             res = self.connection.request('%s/virtualHardwareSection/memory' % get_url_path(vm.get('href')))
-            
+
             # Update VirtualQuantity field
             res.object.find(
                 '{http://schemas.dmtf.org/wbem/wscim/1/cim-schema/2/CIM_ResourceAllocationSettingData}VirtualQuantity'
@@ -1206,24 +1206,24 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
             )
             self._wait_for_task_completion(res.object.get('href'))
         return
-    
+
     def _change_vm_script(self, vapp_href, vm_script):
         if vm_script is None:
             return
-        
+
         res = self.connection.request(vapp_href)
         vms = res.object.findall(fixxpath(res.object, 'Children/Vm'))
         try:
             script = open(vm_script).read()
         except:
             return
-        
+
         # ElementTree escapes script characters automatically. Escape requirements:
         # http://www.vmware.com/support/vcd/doc/rest-api-doc-1.5-html/types/GuestCustomizationSectionType.html
         for vm in vms:
             # Get GuestCustomizationSection
             res = self.connection.request('%s/guestCustomizationSection' % get_url_path(vm.get('href')))
-            
+
             # Attempt to update any existing CustomizationScript element
             try:
                 res.object.find(fixxpath(res.object, 'CustomizationScript')).text = script
@@ -1235,12 +1235,12 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
                 e = ET.Element('{http://www.vmware.com/vcloud/v1.5}CustomizationScript')
                 e.text = script
                 res.object.insert(i, e)
-                
+
             # Remove AdminPassword from customization section due to an API quirk
             admin_pass = res.object.find(fixxpath(res.object, 'AdminPassword'))
             if admin_pass is not None:
                 res.object.remove(admin_pass)
-            
+
             # Update VM's GuestCustomizationSection
             res = self.connection.request('%s/guestCustomizationSection' % get_url_path(vm.get('href')),
                                           data=ET.tostring(res.object),
