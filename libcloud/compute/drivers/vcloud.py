@@ -739,10 +739,11 @@ class VCloud_1_5_Connection(VCloudConnection):
 
 
 class Instantiate_1_5_VAppXML(object):
-    def __init__(self, name, template, network):
+    def __init__(self, name, template, network, vm_network=None):
         self.name = name
         self.template = template
         self.network = network
+        self.vm_network = vm_network
         self._build_xmltree()
 
     def tostring(self):
@@ -779,7 +780,12 @@ class Instantiate_1_5_VAppXML(object):
         )
 
     def _add_network_association(self, parent):
-        parent.set('networkName', self.network.get('name'))
+        if self.vm_network is None:
+            # Don't set a custom vApp VM network name
+            parent.set('networkName', self.network.get('name'))
+        else:
+            # Set a custom vApp VM network name
+            parent.set('networkName', self.vm_network)
         configuration = ET.SubElement(parent, 'Configuration')
         ET.SubElement(configuration, 'ParentNetwork', {'href': self.network.get('href')})
         fencemode = self.network.find(fixxpath(self.network, 'Configuration/FenceMode')).text
@@ -943,6 +949,10 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
         @keyword    ex_vm_script: full path to file containing guest customisation script for each vApp VM.
                                   Useful for creating users & pushing out public SSH keys etc.
         @type       ex_vm_script: C{string}
+        
+        @keyword    ex_vm_network: Override default vApp VM network name. Useful for when you've imported an OVF
+                                   originating from outside of the vCloud.
+        @type       ex_vm_network: C{string}
         """
         name = kwargs['name']
         image = kwargs['image']
@@ -959,6 +969,7 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
 
         # Some providers don't require a network link
         network_href = kwargs.get('ex_network', None)
+        ex_vm_network = kwargs.get('ex_vm_network', None)
         if network_href:
             network_elem = self.connection.request(network_href).object
         else:
@@ -971,7 +982,7 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
         if self._is_node(image):
             vapp_name, vapp_href = self._clone_node(name, image, vdc)
         else:
-            vapp_name, vapp_href = self._instantiate_node(name, image, network_elem, vdc)
+            vapp_name, vapp_href = self._instantiate_node(name, image, network_elem, vdc, ex_vm_network)
 
         self._change_vm_names(vapp_href, ex_vm_names)
         self._change_vm_cpu(vapp_href, ex_vm_cpu)
@@ -998,11 +1009,12 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
 
         return node
 
-    def _instantiate_node(self, name, image, network_elem, vdc):
+    def _instantiate_node(self, name, image, network_elem, vdc, vm_network):
         instantiate_xml = Instantiate_1_5_VAppXML(
             name=name,
             template=image.id,
-            network=network_elem
+            network=network_elem,
+            vm_network=vm_network
         )
 
         # Instantiate VM and get identifier.
