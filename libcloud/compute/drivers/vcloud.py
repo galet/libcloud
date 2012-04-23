@@ -49,10 +49,11 @@ DEFAULT_TASK_COMPLETION_TIMEOUT = 600
 DEFAULT_API_VERSION = '0.8'
 
 """
-Valid vCloud API v1.5 VirtualQuantity elements for vApp VM Memory and CPU.
+Valid vCloud API v1.5 input values.
 """
 VIRTUAL_CPU_VALS_1_5 = [i for i in range(1,9)]
 VIRTUAL_MEMORY_VALS_1_5 = [2**i for i in range(2,19)]
+FENCE_MODE_VALS_1_5 = ['bridged', 'isolated', 'natRouted']
 
 def fixxpath(root, xpath):
     """ElementTree wants namespaces in its xpaths, so here we add them."""
@@ -718,7 +719,7 @@ class VCloud_1_5_Connection(VCloudConnection):
 
             # Get the URL of the Organization
             body = ET.XML(resp.read())
-            org_name = body.get('org')
+            self.org_name = body.get('org')
             org_list_url = get_url_path(
                 next((link for link in body.findall(fixxpath(body, 'Link'))
                     if link.get('type') == 'application/vnd.vmware.vcloud.orgList+xml')).get('href')
@@ -729,7 +730,7 @@ class VCloud_1_5_Connection(VCloudConnection):
             body = ET.XML(conn.getresponse().read())
             self.driver.org = get_url_path(
                 next((org for org in body.findall(fixxpath(body, 'Org'))
-                    if org.get('name') == org_name)).get('href')
+                    if org.get('name') == self.org_name)).get('href')
             )
 
     def add_default_headers(self, headers):
@@ -739,11 +740,12 @@ class VCloud_1_5_Connection(VCloudConnection):
 
 
 class Instantiate_1_5_VAppXML(object):
-    def __init__(self, name, template, network, vm_network=None):
+    def __init__(self, name, template, network, vm_network=None, vm_fence=None):
         self.name = name
         self.template = template
         self.network = network
         self.vm_network = vm_network
+        self.vm_fence = vm_fence
         self._build_xmltree()
 
     def tostring(self):
@@ -788,9 +790,11 @@ class Instantiate_1_5_VAppXML(object):
             parent.set('networkName', self.vm_network)
         configuration = ET.SubElement(parent, 'Configuration')
         ET.SubElement(configuration, 'ParentNetwork', {'href': self.network.get('href')})
-        fencemode = self.network.find(fixxpath(self.network, 'Configuration/FenceMode')).text
-        ET.SubElement(configuration, 'FenceMode').text = fencemode
-
+        if self.vm_fence is None:
+            fencemode = self.network.find(fixxpath(self.network, 'Configuration/FenceMode')).text
+        else:
+            fencemode = self.vm_fence
+            ET.SubElement(configuration, 'FenceMode').text = fencemode
 
 class VCloud_1_5_NodeDriver(VCloudNodeDriver):
 
@@ -930,20 +934,20 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
         @type       image:  L{NodeImage} or L{Node}
 
         Non-standard optional keyword arguments:
-        @keyword    ex_network: link to a "Network" e.g., "https://services.vcloudexpress.terremark.com/api/network/7"
+        @keyword    ex_network: Organisation's network name for attaching vApp VMs to.
         @type       ex_network: C{string}
 
         @keyword    ex_vdc: link to a "VDC" e.g., "https://services.vcloudexpress.terremark.com/api/vdc/1"
         @type       ex_vdc: C{string}
 
         @keyword    ex_vm_names: list of names to be used as a VM and computer name. The name must be max. 15 characters
-                                 long and follow the host name requirements
+                                 long and follow the host name requirements.
         @type       ex_vm_names: C{list} of L{string}
 
-        @keyword    ex_vm_cpu: number of virtual CPUs/cores to allocate for each vApp VM
+        @keyword    ex_vm_cpu: number of virtual CPUs/cores to allocate for each vApp VM.
         @type       ex_vm_cpu: C{number}
-
-        @keyword    ex_vm_memory: amount of memory in MB to allocate for each vApp VM
+        
+        @keyword    ex_vm_memory: amount of memory in MB to allocate for each vApp VM.
         @type       ex_vm_memory: C{number}
 
         @keyword    ex_vm_script: full path to file containing guest customisation script for each vApp VM.
@@ -953,6 +957,10 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
         @keyword    ex_vm_network: Override default vApp VM network name. Useful for when you've imported an OVF
                                    originating from outside of the vCloud.
         @type       ex_vm_network: C{string}
+        
+        @keyword    ex_vm_fence: Fence mode for connecting the vApp VM network (ex_vm_network) to the parent
+                                 organisation network (ex_network).
+        @type       ex_vm_fence: C{string}
         """
         name = kwargs['name']
         image = kwargs['image']
@@ -961,16 +969,19 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
         ex_vm_cpu = kwargs.get('ex_vm_cpu')
         ex_vm_memory = kwargs.get('ex_vm_memory')
         ex_vm_script = kwargs.get('ex_vm_script')
-
+        ex_vm_fence = kwargs.get('ex_vm_fence', None)
+        ex_network = kwargs.get('ex_network', None)
+        ex_vm_network = kwargs.get('ex_vm_network', None)
+        
         self._validate_vm_names(ex_vm_names)
         self._validate_vm_cpu(ex_vm_cpu)
         self._validate_vm_memory(ex_vm_memory)
+        self._validate_vm_fence(ex_vm_fence)
         ex_vm_script = self._validate_vm_script(ex_vm_script)
 
         # Some providers don't require a network link
-        network_href = kwargs.get('ex_network', None)
-        ex_vm_network = kwargs.get('ex_vm_network', None)
-        if network_href:
+        if ex_network:
+            network_href = self._get_network_href(ex_network)
             network_elem = self.connection.request(network_href).object
         else:
             network_elem = None
@@ -982,7 +993,8 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
         if self._is_node(image):
             vapp_name, vapp_href = self._clone_node(name, image, vdc)
         else:
-            vapp_name, vapp_href = self._instantiate_node(name, image, network_elem, vdc, ex_vm_network)
+            vapp_name, vapp_href = self._instantiate_node(name, image, network_elem,
+                                                          vdc, ex_vm_network, ex_vm_fence)
 
         self._change_vm_names(vapp_href, ex_vm_names)
         self._change_vm_cpu(vapp_href, ex_vm_cpu)
@@ -1009,12 +1021,13 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
 
         return node
 
-    def _instantiate_node(self, name, image, network_elem, vdc, vm_network):
+    def _instantiate_node(self, name, image, network_elem, vdc, vm_network, vm_fence):
         instantiate_xml = Instantiate_1_5_VAppXML(
             name=name,
             template=image.id,
             network=network_elem,
-            vm_network=vm_network
+            vm_network=vm_network,
+            vm_fence=vm_fence
         )
 
         # Instantiate VM and get identifier.
@@ -1110,14 +1123,14 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
         if vm_memory is None:
             return
         elif vm_memory not in VIRTUAL_MEMORY_VALS_1_5:
-            raise ValueError('%s is not a valid vApp VM memory value', vm_memory)
+            raise ValueError('%s is not a valid vApp VM memory value' % vm_memory)
 
     @staticmethod
     def _validate_vm_cpu(vm_cpu):
         if vm_cpu is None:
             return
         elif vm_cpu not in VIRTUAL_CPU_VALS_1_5:
-            raise ValueError('%s is not a valid vApp VM CPU value', vm_cpu)
+            raise ValueError('%s is not a valid vApp VM CPU value' % vm_cpu)
 
     @staticmethod
     def _validate_vm_script(vm_script):
@@ -1128,12 +1141,19 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
             vm_script = os.path.expanduser(vm_script)
             vm_script = os.path.abspath(vm_script)
         if not os.path.isfile(vm_script):
-            raise LibcloudError("%s the VM script file does not exist", vm_script)
+            raise LibcloudError("%s the VM script file does not exist" % vm_script)
         try:
             open(vm_script).read()
         except:
             raise
         return vm_script
+    
+    @staticmethod
+    def _validate_vm_fence(vm_fence):
+        if vm_fence is None:
+            return
+        elif vm_fence not in FENCE_MODE_VALS_1_5:
+            raise ValueError('%s is not a valid fencing mode value' % vm_fence)
 
     def _change_vm_names(self, vapp_href, vm_names):
         if vm_names is None:
@@ -1263,6 +1283,29 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
             )
             self._wait_for_task_completion(res.object.get('href'))
         return
+    
+    def _get_network_href(self, network_name):
+        network_href = None
+        
+        # Find the organisation href
+        res = self.connection.request('/api/org')
+        orgs = res.object.findall(fixxpath(res.object, 'Org'))
+        for org in orgs:
+            if org.attrib['name'] == self.connection.org_name:
+                org_href = get_url_path(org.attrib['href'])
+                
+        # Find the organisation's network href
+        res = self.connection.request(org_href)
+        links = res.object.findall(fixxpath(res.object, 'Link'))
+        for l in links:
+            if  l.attrib['type'] == 'application/vnd.vmware.vcloud.orgNetwork+xml'\
+            and l.attrib['name'] == network_name:
+                network_href = l.attrib['href']
+        
+        if network_href is None:
+            raise ValueError('%s is not a valid organisation network name' % network_name)                
+        else:
+            return network_href
 
     def _is_node(self, node_or_image):
         return isinstance(node_or_image, Node)
