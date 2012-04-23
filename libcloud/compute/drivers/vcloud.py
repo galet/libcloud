@@ -15,6 +15,7 @@
 """
 VMware vCloud driver.
 """
+import copy
 import sys
 import re
 import base64
@@ -51,9 +52,10 @@ DEFAULT_API_VERSION = '0.8'
 """
 Valid vCloud API v1.5 input values.
 """
-VIRTUAL_CPU_VALS_1_5 = [i for i in range(1,9)]
-VIRTUAL_MEMORY_VALS_1_5 = [2**i for i in range(2,19)]
+VIRTUAL_CPU_VALS_1_5 = [i for i in range(1, 9)]
+VIRTUAL_MEMORY_VALS_1_5 = [2 ** i for i in range(2, 19)]
 FENCE_MODE_VALS_1_5 = ['bridged', 'isolated', 'natRouted']
+
 
 def fixxpath(root, xpath):
     """ElementTree wants namespaces in its xpaths, so here we add them."""
@@ -794,7 +796,8 @@ class Instantiate_1_5_VAppXML(object):
             fencemode = self.network.find(fixxpath(self.network, 'Configuration/FenceMode')).text
         else:
             fencemode = self.vm_fence
-            ET.SubElement(configuration, 'FenceMode').text = fencemode
+        ET.SubElement(configuration, 'FenceMode').text = fencemode
+
 
 class VCloud_1_5_NodeDriver(VCloudNodeDriver):
 
@@ -946,18 +949,18 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
 
         @keyword    ex_vm_cpu: number of virtual CPUs/cores to allocate for each vApp VM.
         @type       ex_vm_cpu: C{number}
-        
+
         @keyword    ex_vm_memory: amount of memory in MB to allocate for each vApp VM.
         @type       ex_vm_memory: C{number}
 
         @keyword    ex_vm_script: full path to file containing guest customisation script for each vApp VM.
                                   Useful for creating users & pushing out public SSH keys etc.
         @type       ex_vm_script: C{string}
-        
+
         @keyword    ex_vm_network: Override default vApp VM network name. Useful for when you've imported an OVF
                                    originating from outside of the vCloud.
         @type       ex_vm_network: C{string}
-        
+
         @keyword    ex_vm_fence: Fence mode for connecting the vApp VM network (ex_vm_network) to the parent
                                  organisation network (ex_network).
         @type       ex_vm_fence: C{string}
@@ -972,7 +975,7 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
         ex_vm_fence = kwargs.get('ex_vm_fence', None)
         ex_network = kwargs.get('ex_network', None)
         ex_vm_network = kwargs.get('ex_vm_network', None)
-        
+
         self._validate_vm_names(ex_vm_names)
         self._validate_vm_cpu(ex_vm_cpu)
         self._validate_vm_memory(ex_vm_memory)
@@ -1107,6 +1110,58 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
 
         return vapp_name, vapp_href
 
+    def ex_set_vm_cpu(self, vapp_or_vm_id, vm_cpu):
+        """
+        Sets the number of virtual CPUs for the specified VM or VMs under the vApp. If the vapp_or_vm_id param
+        represents a link to an vApp all VMs that are attached to this vApp will be modified.
+
+        Please ensure that hot-adding a virtual CPU is enabled for the powered on virtual machines.
+        Otherwise use this method on undeployed vApp.
+
+        @keyword    vapp_or_vm_id: vApp or VM ID that will be modified. If a vApp ID is used here all attached VMs
+                                   will be modified
+        @type       vapp_or_vm_id: C{string}
+
+        @keyword    vm_cpu: number of virtual CPUs/cores to allocate for specified VMs
+        @type       vm_cpu: C{number}
+        """
+        self._validate_vm_cpu(vm_cpu)
+        self._change_vm_cpu(vapp_or_vm_id, vm_cpu)
+
+    def ex_set_vm_memory(self, vapp_or_vm_id, vm_memory):
+        """
+        Sets the virtual memory in MB to allocate for the specified VM or VMs under the vApp.
+        If the vapp_or_vm_id param represents a link to an vApp all VMs that are attached to
+        this vApp will be modified.
+
+        Please ensure that hot-change of virtual memory is enabled for the powered on virtual machines.
+        Otherwise use this method on undeployed vApp.
+
+        @keyword    vapp_or_vm_id: vApp or VM ID that will be modified. If a vApp ID is used here all attached VMs
+                                   will be modified
+        @type       vapp_or_vm_id: C{string}
+
+        @keyword    vm_memory: virtual memory in MB to allocate for the specified VM or VMs
+        @type       vm_memory: C{number}
+        """
+        self._validate_vm_memory(vm_memory)
+        self._change_vm_memory(vapp_or_vm_id, vm_memory)
+
+    def ex_add_vm_disk(self, vapp_or_vm_id, vm_disk_size):
+        """
+        Adds a virtual disk to the specified VM or VMs under the vApp. If the vapp_or_vm_id param
+        represents a link to an vApp all VMs that are attached to this vApp will be modified.
+
+        @keyword    vapp_or_vm_id: vApp or VM ID that will be modified. If a vApp ID is used here all attached VMs
+                                   will be modified
+        @type       vapp_or_vm_id: C{string}
+
+        @keyword    vm_disk_size: the disk capacity in GB that will be added to the specified VM or VMs
+        @type       vm_disk_size: C{number}
+        """
+        self._validate_vm_disk_size(vm_disk_size)
+        self._add_vm_disk(vapp_or_vm_id, vm_disk_size)
+
     @staticmethod
     def _validate_vm_names(names):
         if names is None:
@@ -1133,6 +1188,13 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
             raise ValueError('%s is not a valid vApp VM CPU value' % vm_cpu)
 
     @staticmethod
+    def _validate_vm_disk_size(vm_disk):
+        if vm_disk is None:
+            return
+        elif int(vm_disk) < 0:
+            raise ValueError('%s is not a valid vApp VM disk space value', vm_disk)
+
+    @staticmethod
     def _validate_vm_script(vm_script):
         if vm_script is None:
             return
@@ -1147,7 +1209,7 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
         except:
             raise
         return vm_script
-    
+
     @staticmethod
     def _validate_vm_fence(vm_fence):
         if vm_fence is None:
@@ -1155,13 +1217,11 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
         elif vm_fence not in FENCE_MODE_VALS_1_5:
             raise ValueError('%s is not a valid fencing mode value' % vm_fence)
 
-    def _change_vm_names(self, vapp_href, vm_names):
+    def _change_vm_names(self, vapp_or_vm_id, vm_names):
         if vm_names is None:
             return
 
-        res = self.connection.request(vapp_href)
-        vms = res.object.findall(fixxpath(res.object, "Children/Vm"))
-
+        vms = self._get_vm_elements(vapp_or_vm_id)
         for i, vm in enumerate(vms):
             if len(vm_names) <= i:
                 return
@@ -1193,13 +1253,11 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
             )
             self._wait_for_task_completion(res.object.get('href'))
 
-    def _change_vm_cpu(self, vapp_href, vm_cpu):
+    def _change_vm_cpu(self, vapp_or_vm_id, vm_cpu):
         if vm_cpu is None:
             return
 
-        res = self.connection.request(vapp_href)
-        vms = res.object.findall(fixxpath(res.object, 'Children/Vm'))
-
+        vms = self._get_vm_elements(vapp_or_vm_id)
         for vm in vms:
             # Get virtualHardwareSection/cpu section
             res = self.connection.request('%s/virtualHardwareSection/cpu' % get_url_path(vm.get('href')))
@@ -1214,15 +1272,12 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
                                           headers={'Content-Type': 'application/vnd.vmware.vcloud.rasdItem+xml'}
             )
             self._wait_for_task_completion(res.object.get('href'))
-        return
 
-    def _change_vm_memory(self, vapp_href, vm_memory):
+    def _change_vm_memory(self, vapp_or_vm_id, vm_memory):
         if vm_memory is None:
             return
 
-        res = self.connection.request(vapp_href)
-        vms = res.object.findall(fixxpath(res.object, 'Children/Vm'))
-
+        vms = self._get_vm_elements(vapp_or_vm_id)
         for vm in vms:
             # Get virtualHardwareSection/memory section
             res = self.connection.request('%s/virtualHardwareSection/memory' % get_url_path(vm.get('href')))
@@ -1237,7 +1292,43 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
                                           headers={'Content-Type': 'application/vnd.vmware.vcloud.rasdItem+xml'}
             )
             self._wait_for_task_completion(res.object.get('href'))
-        return
+
+    def _add_vm_disk(self, vapp_or_vm_id, vm_disk):
+        if vm_disk is None:
+            return
+
+        rasd_ns = '{http://schemas.dmtf.org/wbem/wscim/1/cim-schema/2/CIM_ResourceAllocationSettingData}'
+
+        vms = self._get_vm_elements(vapp_or_vm_id)
+        for vm in vms:
+            # Get virtualHardwareSection/disks section
+            res = self.connection.request('%s/virtualHardwareSection/disks' % vm.get('href'))
+
+            existing_ids = []
+            new_disk = None
+            for item in res.object.findall(fixxpath(res.object, 'Item')):
+                for elem in item:
+                    # Clean Items from unnecessary stuff
+                    if elem.tag == '%sInstanceID' % rasd_ns:
+                        existing_ids.append(int(elem.text))
+                    if elem.tag in ['%sAddressOnParent' % rasd_ns, '%sParent' % rasd_ns]:
+                        item.remove(elem)
+                if item.find('%sHostResource' % rasd_ns) is not None:
+                    new_disk = item
+
+            new_disk = copy.deepcopy(new_disk)
+            disk_id = max(existing_ids) + 1
+            new_disk.find('%sInstanceID' % rasd_ns).text = str(disk_id)
+            new_disk.find('%sElementName' % rasd_ns).text = 'Hard Disk ' + str(disk_id)
+            new_disk.find('%sHostResource' % rasd_ns).set(fixxpath(new_disk, 'capacity'), str(int(vm_disk) * 1024))
+            res.object.append(new_disk)
+
+            res = self.connection.request('%s/virtualHardwareSection/disks' % vm.get('href'),
+                                          data=ET.tostring(res.object),
+                                          method='PUT',
+                                          headers={'Content-Type': 'application/vnd.vmware.vcloud.rasditemslist+xml'}
+            )
+            self._wait_for_task_completion(res.object.get('href'))
 
     def _change_vm_script(self, vapp_href, vm_script):
         if vm_script is None:
@@ -1283,17 +1374,17 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
             )
             self._wait_for_task_completion(res.object.get('href'))
         return
-    
+
     def _get_network_href(self, network_name):
         network_href = None
-        
+
         # Find the organisation href
         res = self.connection.request('/api/org')
         orgs = res.object.findall(fixxpath(res.object, 'Org'))
         for org in orgs:
             if org.attrib['name'] == self.connection.org_name:
                 org_href = get_url_path(org.attrib['href'])
-                
+
         # Find the organisation's network href
         res = self.connection.request(org_href)
         links = res.object.findall(fixxpath(res.object, 'Link'))
@@ -1301,11 +1392,48 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
             if  l.attrib['type'] == 'application/vnd.vmware.vcloud.orgNetwork+xml'\
             and l.attrib['name'] == network_name:
                 network_href = l.attrib['href']
-        
+
         if network_href is None:
-            raise ValueError('%s is not a valid organisation network name' % network_name)                
+            raise ValueError('%s is not a valid organisation network name' % network_name)
         else:
             return network_href
 
+    def _get_vm_elements(self, vapp_or_vm_id):
+        res = self.connection.request(vapp_or_vm_id)
+        if res.object.tag.endswith('VApp'):
+            vms = res.object.findall(fixxpath(res.object, 'Children/Vm'))
+        elif res.object.tag.endswith('Vm'):
+            vms = [res.object]
+        else:
+            raise ValueError('Specified ID value is not a valid VApp or Vm identifier.')
+        return vms
+
     def _is_node(self, node_or_image):
         return isinstance(node_or_image, Node)
+
+    def _to_node(self, node_elem):
+        node = VCloudNodeDriver._to_node(self, node_elem)
+
+        # Parse VMs and add them in extra field
+        vms = []
+        for vm_elem in node_elem.findall(fixxpath(node_elem, 'Children/Vm')):
+            public_ips = []
+            private_ips = []
+            for connection in vm_elem.findall(fixxpath(vm_elem, 'NetworkConnectionSection/NetworkConnection')):
+                ips = [ip.text
+                       for ip
+                       in connection.findall(fixxpath(connection, "IpAddress"))]
+                if connection.get('Network') == 'Internal':
+                    private_ips.extend(ips)
+                else:
+                    public_ips.extend(ips)
+            vm = {
+                'id': vm_elem.get('href'),
+                'name': vm_elem.get('name'),
+                'state': self.NODE_STATE_MAP[vm_elem.get('status')],
+                'public_ips': public_ips,
+                'private_ips': private_ips
+            }
+            vms.append(vm)
+        node.extra = {'vms': vms}
+        return node

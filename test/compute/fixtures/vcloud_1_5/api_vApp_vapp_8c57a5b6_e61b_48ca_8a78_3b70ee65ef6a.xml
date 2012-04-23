@@ -111,7 +111,7 @@
    </Owner>
    <InMaintenanceMode>false</InMaintenanceMode>
    <Children>
-      <Vm needsCustomization="false" deployed="true" status="4" name="mgalet-test2" id="urn:vcloud:vm:dd75d1d3-5b7b-48f0-aff3-69622ab7e045" type="application/vnd.vmware.vcloud.vm+xml" href="https://vm-vcloud/api/vApp/vm-dd75d1d3-5b7b-48f0-aff3-69622ab7e045">
+      <Vm needsCustomization="false" deployed="true" status="4" name="testVm" id="urn:vcloud:vm:dd75d1d3-5b7b-48f0-aff3-69622ab7e045" type="application/vnd.vmware.vcloud.vm+xml" href="https://vm-vcloud/api/vApp/vm-dd75d1d3-5b7b-48f0-aff3-69622ab7e045">
          <Link rel="power:powerOff" href="https://vm-vcloud/api/vApp/vm-dd75d1d3-5b7b-48f0-aff3-69622ab7e045/power/action/powerOff"/>
          <Link rel="power:reboot" href="https://vm-vcloud/api/vApp/vm-dd75d1d3-5b7b-48f0-aff3-69622ab7e045/power/action/reboot"/>
          <Link rel="power:reset" href="https://vm-vcloud/api/vApp/vm-dd75d1d3-5b7b-48f0-aff3-69622ab7e045/power/action/reset"/>
