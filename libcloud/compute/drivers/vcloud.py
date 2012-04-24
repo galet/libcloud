@@ -968,6 +968,9 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
 
         @keyword    ex_vm_ipmode: IP address allocation mode for all vApp VM network connections.
         @type       ex_vm_ipmode: C{string}
+
+        @keyword    ex_deploy: set to False if the node shouldn't be deployed (started) after creation
+        @type       ex_deploy: C{bool}
         """
         name = kwargs['name']
         image = kwargs['image']
@@ -980,6 +983,7 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
         ex_network = kwargs.get('ex_network', None)
         ex_vm_network = kwargs.get('ex_vm_network', None)
         ex_vm_ipmode = kwargs.get('ex_vm_ipmode', None)
+        ex_deploy = kwargs.get('ex_deploy', True)
 
         self._validate_vm_names(ex_vm_names)
         self._validate_vm_cpu(ex_vm_cpu)
@@ -1012,23 +1016,23 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
         self._change_vm_ipmode(vapp_href, ex_vm_ipmode)
 
         # Power on the VM.
-        # Retry 3 times: when instantiating large number of VMs at the same time some may fail on resource allocation
-        retry = 3
-        while True:
-            try:
-                res = self.connection.request('%s/power/action/powerOn' % vapp_href,
-                                              method='POST')
-                self._wait_for_task_completion(res.object.get('href'))
-                break
-            except Exception:
-                if retry <= 0:
-                    raise
-                retry -= 1
-                time.sleep(10)
+        if ex_deploy:
+            # Retry 3 times: when instantiating large number of VMs at the same time some may fail on resource allocation
+            retry = 3
+            while True:
+                try:
+                    res = self.connection.request('%s/power/action/powerOn' % vapp_href,
+                                                  method='POST')
+                    self._wait_for_task_completion(res.object.get('href'))
+                    break
+                except Exception:
+                    if retry <= 0:
+                        raise
+                    retry -= 1
+                    time.sleep(10)
 
         res = self.connection.request(vapp_href)
         node = self._to_node(res.object)
-
         return node
 
     def _instantiate_node(self, name, image, network_elem, vdc, vm_network, vm_fence):
@@ -1323,8 +1327,8 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
             existing_ids = []
             new_disk = None
             for item in res.object.findall(fixxpath(res.object, 'Item')):
+                # Clean Items from unnecessary stuff
                 for elem in item:
-                    # Clean Items from unnecessary stuff
                     if elem.tag == '%sInstanceID' % rasd_ns:
                         existing_ids.append(int(elem.text))
                     if elem.tag in ['%sAddressOnParent' % rasd_ns, '%sParent' % rasd_ns]:
