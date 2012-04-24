@@ -55,6 +55,7 @@ Valid vCloud API v1.5 input values.
 VIRTUAL_CPU_VALS_1_5 = [i for i in range(1, 9)]
 VIRTUAL_MEMORY_VALS_1_5 = [2 ** i for i in range(2, 19)]
 FENCE_MODE_VALS_1_5 = ['bridged', 'isolated', 'natRouted']
+IP_MODE_VALS_1_5 = ['POOL', 'DHCP', 'MANUAL', 'NONE']
 
 
 def fixxpath(root, xpath):
@@ -964,6 +965,9 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
         @keyword    ex_vm_fence: Fence mode for connecting the vApp VM network (ex_vm_network) to the parent
                                  organisation network (ex_network).
         @type       ex_vm_fence: C{string}
+
+        @keyword    ex_vm_ipmode: IP address allocation mode for all vApp VM network connections.
+        @type       ex_vm_ipmode: C{string}
         """
         name = kwargs['name']
         image = kwargs['image']
@@ -975,11 +979,13 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
         ex_vm_fence = kwargs.get('ex_vm_fence', None)
         ex_network = kwargs.get('ex_network', None)
         ex_vm_network = kwargs.get('ex_vm_network', None)
+        ex_vm_ipmode = kwargs.get('ex_vm_ipmode', None)
 
         self._validate_vm_names(ex_vm_names)
         self._validate_vm_cpu(ex_vm_cpu)
         self._validate_vm_memory(ex_vm_memory)
         self._validate_vm_fence(ex_vm_fence)
+        self._validate_vm_ipmode(ex_vm_ipmode)
         ex_vm_script = self._validate_vm_script(ex_vm_script)
 
         # Some providers don't require a network link
@@ -1003,6 +1009,7 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
         self._change_vm_cpu(vapp_href, ex_vm_cpu)
         self._change_vm_memory(vapp_href, ex_vm_memory)
         self._change_vm_script(vapp_href, ex_vm_script)
+        self._change_vm_ipmode(vapp_href, ex_vm_ipmode)
 
         # Power on the VM.
         # Retry 3 times: when instantiating large number of VMs at the same time some may fail on resource allocation
@@ -1217,6 +1224,15 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
         elif vm_fence not in FENCE_MODE_VALS_1_5:
             raise ValueError('%s is not a valid fencing mode value' % vm_fence)
 
+    @staticmethod
+    def _validate_vm_ipmode(vm_ipmode):
+        if vm_ipmode is None:
+            return
+        elif vm_ipmode == 'MANUAL':
+            NotImplementedError('The interface for supplying IpAddress element does not exist yet')
+        elif vm_ipmode not in IP_MODE_VALS_1_5:
+            raise ValueError('%s is not a valid IP address allocation mode value' % vm_ipmode)
+
     def _change_vm_names(self, vapp_or_vm_id, vm_names):
         if vm_names is None:
             return
@@ -1330,12 +1346,11 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
             )
             self._wait_for_task_completion(res.object.get('href'))
 
-    def _change_vm_script(self, vapp_href, vm_script):
+    def _change_vm_script(self, vapp_or_vm_id, vm_script):
         if vm_script is None:
             return
 
-        res = self.connection.request(vapp_href)
-        vms = res.object.findall(fixxpath(res.object, 'Children/Vm'))
+        vms = self._get_vm_elements(vapp_or_vm_id)
         try:
             script = open(vm_script).read()
         except:
@@ -1373,7 +1388,26 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
                                           }
             )
             self._wait_for_task_completion(res.object.get('href'))
-        return
+
+    def _change_vm_ipmode(self, vapp_or_vm_id, vm_ipmode):
+        if vm_ipmode is None:
+            return
+        
+        vms = self._get_vm_elements(vapp_or_vm_id)
+        
+        for vm in vms:
+            res = self.connection.request('%s/networkConnectionSection' % get_url_path(vm.get('href')))
+            net_conns = res.object.findall(fixxpath(res.object, 'NetworkConnection'))
+            for c in net_conns:
+                c.find(fixxpath(c, 'IpAddressAllocationMode')).text = vm_ipmode
+            
+            res = self.connection.request('%s/networkConnectionSection' % get_url_path(vm.get('href')),
+                                          data=ET.tostring(res.object),
+                                          method='PUT',
+                                          headers={'Content-Type':
+                                                   'application/vnd.vmware.vcloud.networkConnectionSection+xml'}
+            )
+            self._wait_for_task_completion(res.object.get('href'))
 
     def _get_network_href(self, network_name):
         network_href = None
