@@ -1449,22 +1449,22 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
     def _is_node(self, node_or_image):
         return isinstance(node_or_image, Node)
 
-    def _to_node(self, node_elem):
-        node = VCloudNodeDriver._to_node(self, node_elem)
+    def _to_node(self, node_elm):
 
-        # Parse VMs and add them in extra field
+        # Parse VMs as extra field
         vms = []
-        for vm_elem in node_elem.findall(fixxpath(node_elem, 'Children/Vm')):
+        for vm_elem in node_elm.findall(fixxpath(node_elm, 'Children/Vm')):
             public_ips = []
             private_ips = []
             for connection in vm_elem.findall(fixxpath(vm_elem, 'NetworkConnectionSection/NetworkConnection')):
-                ips = [ip.text
-                       for ip
-                       in connection.findall(fixxpath(connection, "IpAddress"))]
-                if connection.get('Network') == 'Internal':
-                    private_ips.extend(ips)
-                else:
-                    public_ips.extend(ips)
+                ip = connection.find(fixxpath(connection, "IpAddress"))
+                if ip is not None:
+                    private_ips.append(ip.text)
+                external_ip = connection.find(fixxpath(connection, "ExternalIpAddress"))
+                if external_ip is not None:
+                    public_ips.append(external_ip.text)
+                elif ip is not None:
+                    public_ips.append(ip.text)
             vm = {
                 'id': vm_elem.get('href'),
                 'name': vm_elem.get('name'),
@@ -1473,5 +1473,19 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
                 'private_ips': private_ips
             }
             vms.append(vm)
-        node.extra = {'vms': vms}
+
+        # Take the node IP addresses from all VMs
+        public_ips = []
+        private_ips = []
+        for vm in vms:
+            public_ips.extend(vm['public_ips'])
+            private_ips.extend(vm['private_ips'])
+
+        node = Node(id=node_elm.get('href'),
+                    name=node_elm.get('name'),
+                    state=self.NODE_STATE_MAP[node_elm.get('status')],
+                    public_ips=public_ips,
+                    private_ips=private_ips,
+                    driver=self.connection.driver,
+                    extra={'vms': vms})
         return node

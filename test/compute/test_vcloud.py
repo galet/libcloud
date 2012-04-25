@@ -131,14 +131,27 @@ class VCloud_1_5_Tests(unittest.TestCase, TestCaseMixin):
         self.assertEqual(node.name, 'testNode')
         self.assertEqual(node.state, NodeState.RUNNING)
         self.assertEqual(node.public_ips, ['65.41.67.2'])
-        self.assertEqual(node.private_ips, [])
+        self.assertEqual(node.private_ips, ['65.41.67.2'])
         self.assertEqual(node.extra, {'vms': [{
             'id': 'https://vm-vcloud/api/vApp/vm-dd75d1d3-5b7b-48f0-aff3-69622ab7e045',
             'name': 'testVm',
             'state': NodeState.RUNNING,
             'public_ips': ['65.41.67.2'],
-            'private_ips': [],
+            'private_ips': ['65.41.67.2'],
         }]})
+        node = ret[1]
+        self.assertEqual(node.id, 'https://vm-vcloud/api/vApp/vapp-8c57a5b6-e61b-48ca-8a78-3b70ee65ef6b')
+        self.assertEqual(node.name, 'testNode2')
+        self.assertEqual(node.state, NodeState.RUNNING)
+        self.assertEqual(node.public_ips, ['192.168.0.103'])
+        self.assertEqual(node.private_ips, ['192.168.0.100'])
+        self.assertEqual(node.extra, {'vms': [{
+            'id': 'https://vm-vcloud/api/vApp/vm-dd75d1d3-5b7b-48f0-aff3-69622ab7e046',
+            'name': 'testVm2',
+            'state': NodeState.RUNNING,
+            'public_ips': ['192.168.0.103'],
+            'private_ips': ['192.168.0.100'],
+            }]})
 
     def test_reboot_node(self):
         node = self.driver.list_nodes()[0]
@@ -318,6 +331,10 @@ class VCloud_1_5_MockHttp(MockHttp):
             body = self.fixtures.load('api_task_b034df55_fe81_4798_bc81_1f0fd0ead450.xml')
             status = httplib.ACCEPTED
         return status, body, headers, httplib.responses[status]
+
+    def _api_vApp_vapp_8c57a5b6_e61b_48ca_8a78_3b70ee65ef6b(self, method, url, body, headers):
+        body = self.fixtures.load('api_vApp_vapp_8c57a5b6_e61b_48ca_8a78_3b70ee65ef6b.xml')
+        return httplib.OK, body, headers, httplib.responses[httplib.OK]
 
     def _api_vApp_vm_dd75d1d3_5b7b_48f0_aff3_69622ab7e045(self, method, url, body, headers):
         body = self.fixtures.load('put_api_vApp_vm_dd75d1d3_5b7b_48f0_aff3_69622ab7e045_guestCustomizationSection.xml')
