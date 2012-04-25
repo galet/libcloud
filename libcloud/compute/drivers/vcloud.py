@@ -77,6 +77,10 @@ class Vdc:
         self.name = name
         self.driver = driver
 
+    def __repr__(self):
+        return (('<Vdc: id=%s, name=%s, driver=%s  ...>')
+                % (self.id, self.name, self.driver.name))
+
 
 class InstantiateVAppXML(object):
 
