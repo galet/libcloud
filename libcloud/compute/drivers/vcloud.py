@@ -336,6 +336,19 @@ class VCloudNodeDriver(NodeDriver):
             ]
         return self._vdcs
 
+    def _get_vdc(self, vdc_name):
+        vdc = None
+        if not vdc_name:
+            # Return the first organisation VDC found
+            vdc = self.vdcs[0]
+        else:
+            for v in self.vdcs:
+                if v.name == vdc_name:
+                    vdc = v
+            if vdc is None:
+                raise ValueError('%s virtual data centre could not be found', vdc_name)
+        return vdc
+
     @property
     def networks(self):
         networks = []
@@ -587,7 +600,7 @@ class VCloudNodeDriver(NodeDriver):
         @keyword    ex_network: link to a "Network" e.g., "https://services.vcloudexpress.terremark.com/api/v0.8/network/7"
         @type       ex_network: C{string}
 
-        @keyword    ex_vdc: link to a "VDC" e.g., "https://services.vcloudexpress.terremark.com/api/v0.8/vdc/1"
+        @keyword    ex_vdc: Name of organisation's virtual data center where vApp VMs will be deployed.
         @type       ex_vdc: C{string}
 
         @keyword    ex_cpus: number of virtual cpus (limit depends on provider)
@@ -628,10 +641,10 @@ class VCloudNodeDriver(NodeDriver):
             group=kwargs.get('ex_group', None)
         )
 
+        vdc = self._get_vdc(kwargs.get('ex_vdc', None))
         # Instantiate VM and get identifier.
         res = self.connection.request(
-            '%s/action/instantiateVAppTemplate'
-                % kwargs.get('vdc', self.vdcs[0].id),
+            '%s/action/instantiateVAppTemplate' % vdc.id,
             data=instantiate_xml.tostring(),
             method='POST',
             headers={
@@ -1437,19 +1450,6 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
         else:
             raise ValueError('Specified ID value is not a valid VApp or Vm identifier.')
         return vms
-
-    def _get_vdc(self, vdc_name):
-        vdc = None
-        if not vdc_name:
-            # Return the first organisation VDC found 
-            vdc = self.vdcs[0]
-        else:
-            for v in self.vdcs:
-                if v.name == vdc_name:
-                    vdc = v
-            if vdc is None:
-                raise ValueError('%s virtual data centre could not be found', vdc_name) 
-        return vdc
 
     def _is_node(self, node_or_image):
         return isinstance(node_or_image, Node)

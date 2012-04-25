@@ -109,7 +109,7 @@ class VCloud_1_5_Tests(unittest.TestCase, TestCaseMixin):
             name='testNode',
             image=image,
             size=size,
-            ex_vdc=Vdc('https://vm-vcloud/api/vdc/3d9ae28c-1de9-4307-8107-9356ff8ba6d0', 'MyVdc', self.driver),
+            ex_vdc='MyVdc',
             ex_network='vCloud - Default',
             cpus=2,
             )
