@@ -941,7 +941,7 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
         @keyword    ex_network: Organisation's network name for attaching vApp VMs to.
         @type       ex_network: C{string}
 
-        @keyword    ex_vdc: link to a "VDC" e.g., "https://services.vcloudexpress.terremark.com/api/vdc/1"
+        @keyword    ex_vdc: Name of organisation's virtual data center where vApp VMs will be deployed.
         @type       ex_vdc: C{string}
 
         @keyword    ex_vm_names: list of names to be used as a VM and computer name. The name must be max. 15 characters
@@ -984,6 +984,7 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
         ex_vm_network = kwargs.get('ex_vm_network', None)
         ex_vm_ipmode = kwargs.get('ex_vm_ipmode', None)
         ex_deploy = kwargs.get('ex_deploy', True)
+        ex_vdc = kwargs.get('ex_vdc', None)
 
         self._validate_vm_names(ex_vm_names)
         self._validate_vm_cpu(ex_vm_cpu)
@@ -999,9 +1000,7 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
         else:
             network_elem = None
 
-        vdc = kwargs.get('ex_vdc', self.vdcs[0])
-        if not vdc:
-            vdc = self.vdcs[0]
+        vdc = self._get_vdc(ex_vdc)
 
         if self._is_node(image):
             vapp_name, vapp_href = self._clone_node(name, image, vdc)
@@ -1396,15 +1395,15 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
     def _change_vm_ipmode(self, vapp_or_vm_id, vm_ipmode):
         if vm_ipmode is None:
             return
-        
+
         vms = self._get_vm_elements(vapp_or_vm_id)
-        
+
         for vm in vms:
             res = self.connection.request('%s/networkConnectionSection' % get_url_path(vm.get('href')))
             net_conns = res.object.findall(fixxpath(res.object, 'NetworkConnection'))
             for c in net_conns:
                 c.find(fixxpath(c, 'IpAddressAllocationMode')).text = vm_ipmode
-            
+
             res = self.connection.request('%s/networkConnectionSection' % get_url_path(vm.get('href')),
                                           data=ET.tostring(res.object),
                                           method='PUT',
@@ -1416,15 +1415,8 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
     def _get_network_href(self, network_name):
         network_href = None
 
-        # Find the organisation href
-        res = self.connection.request('/api/org')
-        orgs = res.object.findall(fixxpath(res.object, 'Org'))
-        for org in orgs:
-            if org.attrib['name'] == self.connection.org_name:
-                org_href = get_url_path(org.attrib['href'])
-
         # Find the organisation's network href
-        res = self.connection.request(org_href)
+        res = self.connection.request(self.org)
         links = res.object.findall(fixxpath(res.object, 'Link'))
         for l in links:
             if  l.attrib['type'] == 'application/vnd.vmware.vcloud.orgNetwork+xml'\
@@ -1445,6 +1437,19 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
         else:
             raise ValueError('Specified ID value is not a valid VApp or Vm identifier.')
         return vms
+
+    def _get_vdc(self, vdc_name):
+        vdc = None
+        if not vdc_name:
+            # Return the first organisation VDC found 
+            vdc = self.vdcs[0]
+        else:
+            for v in self.vdcs:
+                if v.name == vdc_name:
+                    vdc = v
+            if vdc is None:
+                raise ValueError('%s virtual data centre could not be found', vdc_name) 
+        return vdc
 
     def _is_node(self, node_or_image):
         return isinstance(node_or_image, Node)
