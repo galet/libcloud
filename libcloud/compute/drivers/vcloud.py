@@ -1249,7 +1249,7 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
         if vm_ipmode is None:
             return
         elif vm_ipmode == 'MANUAL':
-            NotImplementedError('The interface for supplying IpAddress element does not exist yet')
+            raise NotImplementedError('MANUAL IP mode: The interface for supplying IPAddress does not exist yet')
         elif vm_ipmode not in IP_MODE_VALS_1_5:
             raise ValueError('%s is not a valid IP address allocation mode value' % vm_ipmode)
 
