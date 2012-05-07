@@ -132,25 +132,27 @@ class VCloud_1_5_Tests(unittest.TestCase, TestCaseMixin):
         self.assertEqual(node.state, NodeState.RUNNING)
         self.assertEqual(node.public_ips, ['65.41.67.2'])
         self.assertEqual(node.private_ips, ['65.41.67.2'])
-        self.assertEqual(node.extra, {'vms': [{
-            'id': 'https://vm-vcloud/api/vApp/vm-dd75d1d3-5b7b-48f0-aff3-69622ab7e045',
-            'name': 'testVm',
-            'state': NodeState.RUNNING,
-            'public_ips': ['65.41.67.2'],
-            'private_ips': ['65.41.67.2'],
-        }]})
+        self.assertEqual(node.extra, {'vdc': 'MyVdc',
+            'vms': [{
+                'id': 'https://vm-vcloud/api/vApp/vm-dd75d1d3-5b7b-48f0-aff3-69622ab7e045',
+                'name': 'testVm',
+                'state': NodeState.RUNNING,
+                'public_ips': ['65.41.67.2'],
+                'private_ips': ['65.41.67.2'],
+            }]})
         node = ret[1]
         self.assertEqual(node.id, 'https://vm-vcloud/api/vApp/vapp-8c57a5b6-e61b-48ca-8a78-3b70ee65ef6b')
         self.assertEqual(node.name, 'testNode2')
         self.assertEqual(node.state, NodeState.RUNNING)
         self.assertEqual(node.public_ips, ['192.168.0.103'])
         self.assertEqual(node.private_ips, ['192.168.0.100'])
-        self.assertEqual(node.extra, {'vms': [{
-            'id': 'https://vm-vcloud/api/vApp/vm-dd75d1d3-5b7b-48f0-aff3-69622ab7e046',
-            'name': 'testVm2',
-            'state': NodeState.RUNNING,
-            'public_ips': ['192.168.0.103'],
-            'private_ips': ['192.168.0.100'],
+        self.assertEqual(node.extra, {'vdc': 'MyVdc',
+            'vms': [{
+                'id': 'https://vm-vcloud/api/vApp/vm-dd75d1d3-5b7b-48f0-aff3-69622ab7e046',
+                'name': 'testVm2',
+                'state': NodeState.RUNNING,
+                'public_ips': ['192.168.0.103'],
+                'private_ips': ['192.168.0.100'],
             }]})
 
     def test_reboot_node(self):
@@ -217,6 +219,22 @@ class VCloud_1_5_Tests(unittest.TestCase, TestCaseMixin):
 
     def test_ex_set_vm_memory(self):
         self.driver.ex_set_vm_memory('https://test/api/vApp/vm-test', 1024)
+
+    def test_vdcs(self):
+        vdcs = self.driver.vdcs
+        self.assertEqual(len(vdcs), 1)
+        self.assertEqual(vdcs[0].id, 'https://vm-vcloud/api/vdc/3d9ae28c-1de9-4307-8107-9356ff8ba6d0')
+        self.assertEqual(vdcs[0].name, 'MyVdc')
+        self.assertEqual(vdcs[0].allocation_model, 'AllocationPool')
+        self.assertEqual(vdcs[0].storage.limit, 5120000)
+        self.assertEqual(vdcs[0].storage.used, 1984512)
+        self.assertEqual(vdcs[0].storage.units, 'MB')
+        self.assertEqual(vdcs[0].cpu.limit, 160000)
+        self.assertEqual(vdcs[0].cpu.used, 0)
+        self.assertEqual(vdcs[0].cpu.units, 'MHz')
+        self.assertEqual(vdcs[0].memory.limit, 527360)
+        self.assertEqual(vdcs[0].memory.used, 130752)
+        self.assertEqual(vdcs[0].memory.units, 'MB')
 
 
 class TerremarkMockHttp(MockHttp):

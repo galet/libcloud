@@ -72,14 +72,31 @@ def get_url_path(url):
 
 class Vdc:
     """Virtual datacenter (vDC) representation"""
-    def __init__(self, id, name, driver):
+    def __init__(self, id, name, driver, allocation_model=None, cpu=None, memory=None, storage=None):
         self.id = id
         self.name = name
         self.driver = driver
+        self.allocation_model = allocation_model
+        self.cpu = cpu
+        self.memory = memory
+        self.storage = storage
 
     def __repr__(self):
         return (('<Vdc: id=%s, name=%s, driver=%s  ...>')
                 % (self.id, self.name, self.driver.name))
+
+
+class Capacity:
+    """Represents CPU, Memory or Storage capacity of vDC."""
+    def __init__(self, limit, used, units):
+        self.id = id
+        self.limit = limit
+        self.used = used
+        self.units = units
+
+    def __repr__(self):
+        return (('<Capacity: limit=%s, used=%s, units=%s>')
+                % (self.limit, self.used, self.units))
 
 
 class InstantiateVAppXML(object):
@@ -333,12 +350,15 @@ class VCloudNodeDriver(NodeDriver):
             self.connection.check_org()  # make sure the org is set.  # pylint: disable-msg=E1101
             res = self.connection.request(self.org)
             self._vdcs = [
-                Vdc(i.get('href'), i.get('name'), self)
+                self._to_vdc(self.connection.request(i.get('href')).object)
                 for i
                 in res.object.findall(fixxpath(res.object, "Link"))
                 if i.get('type') == 'application/vnd.vmware.vcloud.vdc+xml'
             ]
         return self._vdcs
+
+    def _to_vdc(self, vdc_elm):
+        return Vdc(vdc_elm.get('href'), vdc_elm.get('name'), self)
 
     def _get_vdc(self, vdc_name):
         vdc = None
@@ -1490,11 +1510,38 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
             public_ips.extend(vm['public_ips'])
             private_ips.extend(vm['private_ips'])
 
+        # Find vDC
+        vdc_id = next(link.get('href') for link in node_elm.findall(fixxpath(node_elm, 'Link'))
+            if link.get('type') == 'application/vnd.vmware.vcloud.vdc+xml')
+        vdc = next(vdc for vdc in self.vdcs if vdc.id == vdc_id)
+
         node = Node(id=node_elm.get('href'),
                     name=node_elm.get('name'),
                     state=self.NODE_STATE_MAP[node_elm.get('status')],
                     public_ips=public_ips,
                     private_ips=private_ips,
                     driver=self.connection.driver,
-                    extra={'vms': vms})
+                    extra={'vdc': vdc.name, 'vms': vms})
         return node
+
+    def _to_vdc(self, vdc_elm):
+
+        def get_capacity_values(capacity_elm):
+            if capacity_elm is None:
+                return None
+            limit = int(capacity_elm.findtext(fixxpath(capacity_elm, 'Limit')))
+            used = int(capacity_elm.findtext(fixxpath(capacity_elm, 'Used')))
+            units = capacity_elm.findtext(fixxpath(capacity_elm, 'Units'))
+            return Capacity(limit, used, units)
+
+        cpu = get_capacity_values(vdc_elm.find(fixxpath(vdc_elm, 'ComputeCapacity/Cpu')))
+        memory = get_capacity_values(vdc_elm.find(fixxpath(vdc_elm, 'ComputeCapacity/Memory')))
+        storage = get_capacity_values(vdc_elm.find(fixxpath(vdc_elm, 'StorageCapacity')))
+
+        return Vdc(id=vdc_elm.get('href'),
+                   name=vdc_elm.get('name'),
+                   driver=self,
+                   allocation_model=vdc_elm.findtext(fixxpath(vdc_elm, 'AllocationModel')),
+                   cpu=cpu,
+                   memory=memory,
+                   storage=storage)
