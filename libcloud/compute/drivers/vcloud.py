@@ -1142,6 +1142,25 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
             subjects.append(subject)
 
         return ControlAccess(node, everyone_access_level, subjects)
+    
+    def ex_get_metadata(self, node):
+        """
+        @param  node: node
+        @type   node: L{Node}
+        
+        @return: dictionary mapping metadata keys to metadata values
+        @rtype: dictionary mapping C{str} to C{str}
+        """
+        res = self.connection.request('%s/metadata' % get_url_path(node.id))
+        metadata_entries = res.object.findall(fixxpath(res.object, 'MetadataEntry'))
+        res_dict = {}
+        
+        for entry in metadata_entries:
+            key = entry.findtext(fixxpath(res.object, 'Key'))
+            value = entry.findtext(fixxpath(res.object, 'Value'))
+            res_dict[key] = value
+            
+        return res_dict
 
     def ex_set_control_access(self, node, control_access):
         """
