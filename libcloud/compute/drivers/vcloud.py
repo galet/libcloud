@@ -1240,7 +1240,6 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
                 'Content-Type': 'application/vnd.vmware.vcloud.metadata+xml'
             },
             method='POST')
-          
         self._wait_for_task_completion(res.object.get('href'))
 
     def ex_query(self, type, filter=None, page=1, page_size=100, sort_asc=None,

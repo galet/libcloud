@@ -274,6 +274,10 @@ class VCloud_1_5_Tests(unittest.TestCase, TestCaseMixin):
         node = Node('https://vm-vcloud/api/vApp/vapp-8c57a5b6-e61b-48ca-8a78-3b70ee65ef6b', 'testNode', NodeState.RUNNING, [], [], self.driver)
         metadata = self.driver.ex_get_metadata(node)
         self.assertEqual(metadata, {'owners':'msamia@netsuite.com'})
+        
+    def test_ex_set_metadata_entry(self):
+        node = Node('https://vm-vcloud/api/vApp/vapp-8c57a5b6-e61b-48ca-8a78-3b70ee65ef6b', 'testNode', NodeState.RUNNING, [], [], self.driver)
+        self.driver.ex_set_metadata_entry('foo', 'bar', node)
 
 
 class TerremarkMockHttp(MockHttp):
@@ -512,6 +516,11 @@ class VCloud_1_5_MockHttp(MockHttp, unittest.TestCase):
     def _api_vApp_vapp_8c57a5b6_e61b_48ca_8a78_3b70ee65ef6b_metadata(self, method, url, body, headers):
         body = self.fixtures.load('api_vapp_get_metadata.xml')
         return httplib.OK, body, headers, httplib.responses[httplib.OK]
+
+    def _api_vApp_vapp_2e0d3db0_1d5d_4d9f_a885_8f81e929db7c_metadata(self, method, url, body, headers):
+        body = self.fixtures.load('api_vapp_post_metadata.xml')
+        return httplib.ACCEPTED, body, headers, httplib.responses[httplib.ACCEPTED]
+
 
     def _api_vApp_vapp_8c57a5b6_e61b_48ca_8a78_3b70ee65ef6b_controlAccess(self, method, url, body, headers):
         body = self.fixtures.load('api_vApp_vapp_8c57a5b6_e61b_48ca_8a78_3b70ee65ef6a_controlAccess.xml')
