@@ -269,6 +269,11 @@ class VCloud_1_5_Tests(unittest.TestCase, TestCaseMixin):
             type = 'group',
             access_level = ControlAccess.AccessLevel.FULL_CONTROL)])
         self.driver.ex_set_control_access(node, control_access)
+        
+    def test_ex_get_metadata(self):
+        node = Node('https://vm-vcloud/api/vApp/vapp-8c57a5b6-e61b-48ca-8a78-3b70ee65ef6b', 'testNode', NodeState.RUNNING, [], [], self.driver)
+        metadata = self.driver.ex_get_metadata(node)
+        self.assertEqual(metadata, {'owners':'msamia@netsuite.com'})
 
 
 class TerremarkMockHttp(MockHttp):
@@ -502,6 +507,10 @@ class VCloud_1_5_MockHttp(MockHttp, unittest.TestCase):
             body = self.fixtures.load('api_query_group.xml')
         else:
             raise AssertionError('Unexpected query type')
+        return httplib.OK, body, headers, httplib.responses[httplib.OK]
+
+    def _api_vApp_vapp_8c57a5b6_e61b_48ca_8a78_3b70ee65ef6b_metadata(self, method, url, body, headers):
+        body = self.fixtures.load('api_vapp_get_metadata.xml')
         return httplib.OK, body, headers, httplib.responses[httplib.OK]
 
     def _api_vApp_vapp_8c57a5b6_e61b_48ca_8a78_3b70ee65ef6b_controlAccess(self, method, url, body, headers):
