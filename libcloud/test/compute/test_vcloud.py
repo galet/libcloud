@@ -22,6 +22,7 @@ from libcloud.utils.py3 import httplib, b
 from libcloud.compute.drivers.vcloud import TerremarkDriver, VCloudNodeDriver, Subject
 from libcloud.compute.drivers.vcloud import VCloud_1_5_NodeDriver, ControlAccess
 from libcloud.compute.drivers.vcloud import VCloud_5_1_NodeDriver
+from libcloud.compute.drivers.vcloud import Vdc
 from libcloud.compute.base import Node, NodeImage
 from libcloud.compute.types import NodeState
 
@@ -241,6 +242,13 @@ class VCloud_1_5_Tests(unittest.TestCase, TestCaseMixin):
 
     def test_ex_list_nodes(self):
         self.assertEqual(len(self.driver.ex_list_nodes()), len(self.driver.list_nodes()))
+        
+    def test_ex_list_nodes__masked_exception(self):
+        """
+        Test that we don't mask other exceptions.
+        """
+        brokenVdc = Vdc('/api/vdc/brokenVdc', 'brokenVdc', self.driver)
+        self.assertRaises(AnotherError, self.driver.ex_list_nodes, (brokenVdc))
 
     def test_ex_power_off(self):
         node = Node('https://vm-vcloud/api/vApp/vapp-8c57a5b6-e61b-48ca-8a78-3b70ee65ef6b', 'testNode', NodeState.RUNNING, [], [], self.driver)
@@ -398,6 +406,21 @@ class TerremarkMockHttp(MockHttp):
         return (httplib.ACCEPTED, body, headers, httplib.responses[httplib.ACCEPTED])
 
 
+class AnotherErrorMember:
+    """
+    helper class for the synthetic exception
+    """
+    
+    def __init__(self):
+        self.tag = 'Error'
+    
+    def get(self, foo):
+        return 'ACCESS_TO_RESOURCE_IS_FORBIDDEN'
+        
+class AnotherError(Exception):
+    pass
+
+
 class VCloud_1_5_MockHttp(MockHttp, unittest.TestCase):
 
     fixtures = ComputeFileFixtures('vcloud_1_5')
@@ -429,6 +452,14 @@ class VCloud_1_5_MockHttp(MockHttp, unittest.TestCase):
     def _api_vdc_3d9ae28c_1de9_4307_8107_9356ff8ba6d0(self, method, url, body, headers):
         body = self.fixtures.load('api_vdc_3d9ae28c_1de9_4307_8107_9356ff8ba6d0.xml')
         return httplib.OK, body, headers, httplib.responses[httplib.OK]
+        
+    def _api_vdc_brokenVdc(self, method, url, body, headers):
+        body = self.fixtures.load('api_vdc_brokenVdc.xml')
+        return httplib.OK, body, headers, httplib.responses[httplib.OK]
+    
+    def _api_vApp_vapp_errorRaiser(self, method, url, body, headers):
+        m = AnotherErrorMember()
+        raise AnotherError(m)
 
     def _api_vdc_3d9ae28c_1de9_4307_8107_9356ff8ba6d0_action_instantiateVAppTemplate(self, method, url, body, headers):
         body = self.fixtures.load('api_vdc_3d9ae28c_1de9_4307_8107_9356ff8ba6d0_action_instantiateVAppTemplate.xml')
