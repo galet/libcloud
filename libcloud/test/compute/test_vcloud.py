@@ -490,6 +490,10 @@ class VCloud_1_5_MockHttp(MockHttp, unittest.TestCase):
     def _api_vApp_vapp_8c57a5b6_e61b_48ca_8a78_3b70ee65ef6b(self, method, url, body, headers):
         body = self.fixtures.load('api_vApp_vapp_8c57a5b6_e61b_48ca_8a78_3b70ee65ef6b.xml')
         return httplib.OK, body, headers, httplib.responses[httplib.OK]
+        
+    def _api_vApp_vapp_8c57a5b6_e61b_48ca_8a78_3b70ee65ef6c(self, method, url, body, headers):
+        body = self.fixtures.load('api_vApp_vapp_8c57a5b6_e61b_48ca_8a78_3b70ee65ef6c.xml')
+        return httplib.OK, body, headers, httplib.responses[httplib.OK]
 
     def _api_vApp_vm_dd75d1d3_5b7b_48f0_aff3_69622ab7e045(self, method, url, body, headers):
         body = self.fixtures.load('put_api_vApp_vm_dd75d1d3_5b7b_48f0_aff3_69622ab7e045_guestCustomizationSection.xml')
