@@ -15,7 +15,7 @@
 """
 Abiquo Utilities Module for the Abiquo Driver.
 
-Common utilities needed by the L{AbiquoNodeDriver}.
+Common utilities needed by the :class:`AbiquoNodeDriver`.
 """
 import base64
 
@@ -30,7 +30,7 @@ from libcloud.compute.base import NodeState
 
 def get_href(element, rel):
     """
-    Search a RESTLink element in the L{AbiquoResponse}.
+    Search a RESTLink element in the :class:`AbiquoResponse`.
 
     Abiquo, as a REST API, it offers self-discovering functionality.
     That means that you could walk through the whole API only
@@ -69,12 +69,12 @@ def get_href(element, rel):
 
     'http://10.60.12.7:80/api/admin/datacenters/1'
 
-    @type  element: C{xml.etree.ElementTree}
-    @param element: Xml Entity returned by Abiquo API (required)
-    @type      rel: C{string}
-    @param     rel: relation link name
-    @rtype:         C{string}
-    @return:        the 'href' value according to the 'rel' input parameter
+    :type  element: :class:`xml.etree.ElementTree`
+    :param element: Xml Entity returned by Abiquo API (required)
+    :type      rel: ``str``
+    :param     rel: relation link name
+    :rtype:         ``str``
+    :return:        the 'href' value according to the 'rel' input parameter
     """
     links = element.findall('link')
     for link in links:
@@ -85,7 +85,11 @@ def get_href(element, rel):
             # 'http://localhost:80/api/admin/enterprises'
             #
             # we are only interested in '/admin/enterprises/' part
-            return urlparse.urlparse(href).path[len(b('/api')):]
+            needle = '/api/'
+            url_path = urlparse.urlparse(href).path
+            index = url_path.find(needle)
+            result = url_path[index + len(needle) - 1:]
+            return result
 
 
 class AbiquoResponse(XmlResponse):
@@ -113,7 +117,7 @@ class AbiquoResponse(XmlResponse):
         Parse the error messages.
 
         Response body can easily be handled by this class parent
-        L{XmlResponse}, but there are use cases which Abiquo API
+        :class:`XmlResponse`, but there are use cases which Abiquo API
         does not respond an XML but an HTML. So we need to
         handle these special cases.
         """
@@ -121,19 +125,25 @@ class AbiquoResponse(XmlResponse):
             raise InvalidCredsError(driver=self.connection.driver)
         elif self.status == httplib.FORBIDDEN:
             raise ForbiddenError(self.connection.driver)
+        elif self.status == httplib.NOT_ACCEPTABLE:
+            raise LibcloudError('Not Acceptable')
         else:
-            errors = self.parse_body().findall('error')
-            # Most of the exceptions only have one error
-            raise LibcloudError(errors[0].findtext('message'))
+            parsebody = self.parse_body()
+            if parsebody is not None and hasattr(parsebody, 'findall'):
+                errors = self.parse_body().findall('error')
+                # Most of the exceptions only have one error
+                raise LibcloudError(errors[0].findtext('message'))
+            else:
+                raise LibcloudError(self.body)
 
     def success(self):
         """
         Determine if the request was successful.
 
-        Any of the 2XX HTTP response codes are accepted as successfull requests
+        Any of the 2XX HTTP response codes are accepted as successful requests
 
-        @rtype:  C{bool}
-        @return: successful request or not.
+        :rtype:  ``bool``
+        :return: successful request or not.
         """
         return self.status in [httplib.OK, httplib.CREATED, httplib.NO_CONTENT,
                                httplib.ACCEPTED]
@@ -148,8 +158,8 @@ class AbiquoResponse(XmlResponse):
         So this method checks if the status code is 'OK' and if the task
         has finished successfully.
 
-        @rtype:  C{bool}
-        @return: successful asynchronous request or not
+        :rtype:  ``bool``
+        :return: successful asynchronous request or not
         """
         if self.success():
             # So we have a 'task' object in the body
@@ -163,11 +173,21 @@ class AbiquoConnection(ConnectionUserAndKey, PollingConnection):
     """
     A Connection to Abiquo API.
 
-    Basic L{ConnectionUserAndKey} connection with L{PollingConnection} features
-    for asynchronous tasks.
+    Basic :class:`ConnectionUserAndKey` connection with
+    :class:`PollingConnection` features for asynchronous tasks.
     """
 
     responseCls = AbiquoResponse
+
+    def __init__(self, user_id, key, secure=True, host=None, port=None,
+                 url=None, timeout=None):
+        super(AbiquoConnection, self).__init__(user_id=user_id, key=key,
+                                               secure=secure,
+                                               host=host, port=port,
+                                               url=url, timeout=timeout)
+
+        # This attribute stores data cached across multiple request
+        self.cache = {}
 
     def add_default_headers(self, headers):
         """
@@ -176,10 +196,11 @@ class AbiquoConnection(ConnectionUserAndKey, PollingConnection):
         It injects the 'Authorization: Basic Base64String===' header
         in each request
 
-        @type  headers: C{dict}
-        @param headers: Default input headers
-        @rtype          C{dict}
-        @return:        Default input headers with the 'Authorization'
+        :type  headers: ``dict``
+        :param headers: Default input headers
+
+        :rtype:         ``dict``
+        :return:        Default input headers with the 'Authorization'
                         header
         """
         b64string = b('%s:%s' % (self.user_id, self.key))
@@ -194,9 +215,10 @@ class AbiquoConnection(ConnectionUserAndKey, PollingConnection):
         """
         Manage polling request arguments.
 
-        Return keyword arguments which are passed to the L{NodeDriver.request}
-        method when polling for the job status. The Abiquo Asynchronous
-        Response returns and 'acceptedrequest' XmlElement as the following::
+        Return keyword arguments which are passed to the
+        :class:`NodeDriver.request` method when polling for the job status. The
+        Abiquo Asynchronous Response returns and 'acceptedrequest' XmlElement
+        as the following::
 
             <acceptedrequest>
                 <link href="http://uri/to/task" rel="status"/>
@@ -205,29 +227,32 @@ class AbiquoConnection(ConnectionUserAndKey, PollingConnection):
 
         We need to extract the href URI to poll.
 
-        @type    response:       C{xml.etree.ElementTree}
-        @keyword response:       Object returned by poll request.
-        @type    request_kwargs: C{dict}
-        @keyword request_kwargs: Default request arguments and headers
-        @rtype:                  C{dict}
-        @return:                 Modified keyword arguments
+        :type    response:       :class:`xml.etree.ElementTree`
+        :keyword response:       Object returned by poll request.
+        :type    request_kwargs: ``dict``
+        :keyword request_kwargs: Default request arguments and headers
+        :rtype:                  ``dict``
+        :return:                 Modified keyword arguments
         """
         accepted_request_obj = response.object
         link_poll = get_href(accepted_request_obj, 'status')
+        hdr_poll = {'Accept': 'application/vnd.abiquo.task+xml'}
 
-        # Override just the 'action' and 'method' keys of the previous dict
+        # Override the 'action', 'method' and 'headers'
+        # keys of the previous dict
         request_kwargs['action'] = link_poll
         request_kwargs['method'] = 'GET'
+        request_kwargs['headers'] = hdr_poll
         return request_kwargs
 
     def has_completed(self, response):
         """
         Decide if the asynchronous job has ended.
 
-        @type  response: C{xml.etree.ElementTree}
-        @param response: Response object returned by poll request
-        @rtype:          C{bool}
-        @return:         Whether the job has completed
+        :type  response: :class:`xml.etree.ElementTree`
+        :param response: Response object returned by poll request
+        :rtype:          ``bool``
+        :return:         Whether the job has completed
         """
         task = response.object
         task_state = task.findtext('state')

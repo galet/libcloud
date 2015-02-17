@@ -16,11 +16,10 @@ import os
 import sys
 import doctest
 
-from distutils.core import setup
+from setuptools import setup
 from distutils.core import Command
 from unittest import TextTestRunner, TestLoader
 from glob import glob
-from subprocess import call
 from os.path import splitext, basename, join as pjoin
 
 try:
@@ -31,6 +30,8 @@ except ImportError:
 
 import libcloud.utils.misc
 from libcloud.utils.dist import get_packages, get_data_files
+from libcloud.utils.py3 import unittest2_required
+
 libcloud.utils.misc.SHOW_DEPRECATION_WARNING = False
 
 
@@ -44,6 +45,11 @@ DOC_TEST_MODULES = ['libcloud.compute.drivers.dummy',
                     'libcloud.dns.drivers.dummy']
 
 SUPPORTED_VERSIONS = ['2.5', '2.6', '2.7', 'PyPy', '3.x']
+
+TEST_REQUIREMENTS = [
+    'backports.ssl_match_hostname',
+    'mock'
+]
 
 if sys.version_info <= (2, 4):
     version = '.'.join([str(x) for x in sys.version_info[:3]])
@@ -64,6 +70,17 @@ def read_version_string():
     return version
 
 
+def forbid_publish():
+    argv = sys.argv
+    if 'upload'in argv:
+        print('You shouldn\'t use upload command to upload a release to PyPi. '
+              'You need to manually upload files generated using release.sh '
+              'script.\n'
+              'For more information, see "Making a release section" in the '
+              'documentation')
+        sys.exit(1)
+
+
 class TestCommand(Command):
     description = "run test suite"
     user_options = []
@@ -79,14 +96,26 @@ class TestCommand(Command):
         pass
 
     def run(self):
-        try:
-            import mock
-            mock
-        except ImportError:
-            print('Missing "mock" library. mock is library is needed '
-                  'to run the tests. You can install it using pip: '
-                  'pip install mock')
-            sys.exit(1)
+        for module_name in TEST_REQUIREMENTS:
+            try:
+                __import__(module_name)
+            except ImportError:
+                print('Missing "%s" library. %s is library is needed '
+                      'to run the tests. You can install it using pip: '
+                      'pip install %s' % (module_name, module_name,
+                                          module_name))
+                sys.exit(1)
+
+        if unittest2_required:
+            try:
+                import unittest2
+                unittest2
+            except ImportError:
+                print('Python version: %s' % (sys.version))
+                print('Missing "unittest2" library. unittest2 is library is '
+                      'needed to run the tests. You can install it using pip: '
+                      'pip install unittest2')
+                sys.exit(1)
 
         status = self._run_tests()
         sys.exit(status)
@@ -106,7 +135,7 @@ class TestCommand(Command):
 
         if mtime_dist > mtime_current:
             print("It looks like test/secrets.py file is out of date.")
-            print("Please copy the new secret.py-dist file over otherwise" +
+            print("Please copy the new secrets.py-dist file over otherwise" +
                   " tests might fail")
 
         if pre_python26:
@@ -142,31 +171,6 @@ class TestCommand(Command):
         t = TextTestRunner(verbosity=2)
         res = t.run(tests)
         return not res.wasSuccessful()
-
-
-class Pep8Command(Command):
-    description = "run pep8 script"
-    user_options = []
-
-    def initialize_options(self):
-        pass
-
-    def finalize_options(self):
-        pass
-
-    def run(self):
-        try:
-            import pep8
-            pep8
-        except ImportError:
-            print ('Missing "pep8" library. You can install it using pip: '
-                   'pip install pep8')
-            sys.exit(1)
-
-        cwd = os.getcwd()
-        retcode = call(('pep8 %s/libcloud/' %
-                       (cwd)).split(' '))
-        sys.exit(retcode)
 
 
 class ApiDocsCommand(Command):
@@ -216,6 +220,11 @@ class CoverageCommand(Command):
         cov.save()
         cov.html_report()
 
+forbid_publish()
+
+install_requires = ['backports.ssl_match_hostname']
+if pre_python26:
+    install_requires.extend(['ssl', 'simplejson'])
 
 setup(
     name='apache-libcloud',
@@ -225,7 +234,7 @@ setup(
                 ' and documentation, please see http://libcloud.apache.org',
     author='Apache Software Foundation',
     author_email='dev@libcloud.apache.org',
-    requires=([], ['ssl', 'simplejson'],)[pre_python26],
+    install_requires=install_requires,
     packages=get_packages('libcloud'),
     package_dir={
         'libcloud': 'libcloud',
@@ -235,10 +244,10 @@ setup(
     url='http://libcloud.apache.org/',
     cmdclass={
         'test': TestCommand,
-        'pep8': Pep8Command,
         'apidocs': ApiDocsCommand,
         'coverage': CoverageCommand
     },
+    zip_safe=False,
     classifiers=[
         'Development Status :: 4 - Beta',
         'Environment :: Console',
@@ -254,4 +263,6 @@ setup(
         'Programming Language :: Python :: 3.0',
         'Programming Language :: Python :: 3.1',
         'Programming Language :: Python :: 3.2',
+        'Programming Language :: Python :: 3.3',
+        'Programming Language :: Python :: 3.4',
         'Programming Language :: Python :: Implementation :: PyPy'])

@@ -13,19 +13,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from libcloud.utils.py3 import httplib
+
 __all__ = [
     "LibcloudError",
     "MalformedResponseError",
+    "ProviderError",
     "InvalidCredsError",
     "InvalidCredsException",
     "LazyList"
-    ]
+]
 
 
 class LibcloudError(Exception):
     """The base class for other libcloud exceptions"""
 
     def __init__(self, value, driver=None):
+        super(LibcloudError, self).__init__(value)
         self.value = value
         self.driver = driver
 
@@ -61,13 +65,19 @@ class MalformedResponseError(LibcloudError):
                 + repr(self.body))
 
 
-class InvalidCredsError(LibcloudError):
-    """Exception used when invalid credentials are used on a provider."""
+class ProviderError(LibcloudError):
+    """
+    Exception used when provider gives back
+    error response (HTTP 4xx, 5xx) for a request.
 
-    def __init__(self, value='Invalid credentials with the provider',
-                 driver=None):
-        self.value = value
-        self.driver = driver
+    Specific sub types can be derieved for errors like
+    HTTP 401 : InvalidCredsError
+    HTTP 404 : NodeNotFoundError, ContainerDoesNotExistError
+    """
+
+    def __init__(self, value, http_code, driver=None):
+        super(ProviderError, self).__init__(value=value, driver=driver)
+        self.http_code = http_code
 
     def __str__(self):
         return self.__repr__()
@@ -76,7 +86,17 @@ class InvalidCredsError(LibcloudError):
         return repr(self.value)
 
 
-# Deprecated alias of L{InvalidCredsError}
+class InvalidCredsError(ProviderError):
+    """Exception used when invalid credentials are used on a provider."""
+
+    def __init__(self, value='Invalid credentials with the provider',
+                 driver=None):
+        super(InvalidCredsError, self).__init__(value,
+                                                http_code=httplib.UNAUTHORIZED,
+                                                driver=driver)
+
+
+# Deprecated alias of :class:`InvalidCredsError`
 InvalidCredsException = InvalidCredsError
 
 
@@ -117,7 +137,7 @@ class LazyList(object):
     def _load_all(self):
         while not self._exhausted:
             newdata, self._last_key, self._exhausted = \
-                     self._get_more(last_key=self._last_key,
-                                    value_dict=self._value_dict)
+                self._get_more(last_key=self._last_key,
+                               value_dict=self._value_dict)
             self._data.extend(newdata)
         self._all_loaded = True

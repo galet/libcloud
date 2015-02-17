@@ -20,22 +20,17 @@ import os.path                          # pylint: disable-msg=W0404
 import math
 import sys
 import copy
-import unittest
 
 import mock
 
 import libcloud.utils.files
 
-from libcloud.utils.py3 import PY3
 from libcloud.utils.py3 import b
 from libcloud.utils.py3 import httplib
 from libcloud.utils.py3 import urlquote
 
-if PY3:
-    from io import FileIO as file
-
 from libcloud.common.types import LibcloudError, MalformedResponseError
-from libcloud.storage.base import Container, Object
+from libcloud.storage.base import CHUNK_SIZE, Container, Object
 from libcloud.storage.types import ContainerAlreadyExistsError
 from libcloud.storage.types import ContainerDoesNotExistError
 from libcloud.storage.types import ContainerIsNotEmptyError
@@ -47,22 +42,23 @@ from libcloud.storage.drivers.cloudfiles import CloudFilesUSStorageDriver
 from libcloud.storage.drivers.cloudfiles import CloudFilesUKStorageDriver
 from libcloud.storage.drivers.dummy import DummyIterator
 
-from libcloud.test import StorageMockHttp, MockRawResponse # pylint: disable-msg=E0611
-from libcloud.test import MockHttpTestCase # pylint: disable-msg=E0611
-from libcloud.test.file_fixtures import StorageFileFixtures, OpenStackFixtures # pylint: disable-msg=E0611
+from libcloud.test import StorageMockHttp, MockRawResponse  # pylint: disable-msg=E0611
+from libcloud.test import MockHttpTestCase  # pylint: disable-msg=E0611
+from libcloud.test import unittest
+from libcloud.test.file_fixtures import StorageFileFixtures  # pylint: disable-msg=E0611
 
 
 class CloudFilesTests(unittest.TestCase):
     driver_klass = CloudFilesStorageDriver
     driver_args = ('dummy', 'dummy')
     driver_kwargs = {}
-    datacenter = 'ord'
+    region = 'ord'
 
     def setUp(self):
         self.driver_klass.connectionCls.conn_classes = (
             None, CloudFilesMockHttp)
         self.driver_klass.connectionCls.rawResponseCls = \
-                                              CloudFilesMockRawResponse
+            CloudFilesMockRawResponse
         CloudFilesMockHttp.type = None
         CloudFilesMockRawResponse.type = None
         self.driver = self.driver_klass(*self.driver_args,
@@ -77,19 +73,19 @@ class CloudFilesTests(unittest.TestCase):
 
     def test_invalid_ex_force_service_region(self):
         driver = CloudFilesStorageDriver('driver', 'dummy',
-                ex_force_service_region='invalid')
+                                         ex_force_service_region='invalid')
 
         try:
             driver.list_containers()
         except:
             e = sys.exc_info()[1]
-            self.assertEquals(e.value, 'Could not find specified endpoint')
+            self.assertEqual(e.value, 'Could not find specified endpoint')
         else:
             self.fail('Exception was not thrown')
 
     def test_ex_force_service_region(self):
         driver = CloudFilesStorageDriver('driver', 'dummy',
-                ex_force_service_region='ORD')
+                                         ex_force_service_region='ORD')
         driver.list_containers()
 
     def test_force_auth_token_kwargs(self):
@@ -101,29 +97,12 @@ class CloudFilesTests(unittest.TestCase):
         driver = CloudFilesStorageDriver('driver', 'dummy', **kwargs)
         driver.list_containers()
 
-        self.assertEquals(kwargs['ex_force_auth_token'],
-            driver.connection.auth_token)
-        self.assertEquals('cdn2.clouddrive.com',
-            driver.connection.host)
-        self.assertEquals('/v1/MossoCloudFS',
-            driver.connection.request_path)
-
-    def test_invalid_ex_force_service_region(self):
-        driver = CloudFilesStorageDriver('driver', 'dummy',
-                ex_force_service_region='invalid')
-
-        try:
-            driver.list_containers()
-        except:
-            e = sys.exc_info()[1]
-            self.assertEquals(e.value, 'Could not find specified endpoint')
-        else:
-            self.fail('Exception was not thrown')
-
-    def test_ex_force_service_region(self):
-        driver = CloudFilesStorageDriver('driver', 'dummy',
-                ex_force_service_region='ORD')
-        driver.list_containers()
+        self.assertEqual(kwargs['ex_force_auth_token'],
+                         driver.connection.auth_token)
+        self.assertEqual('cdn2.clouddrive.com',
+                         driver.connection.host)
+        self.assertEqual('/v1/MossoCloudFS',
+                         driver.connection.request_path)
 
     def test_force_auth_url_kwargs(self):
         kwargs = {
@@ -132,10 +111,10 @@ class CloudFilesTests(unittest.TestCase):
         }
         driver = CloudFilesStorageDriver('driver', 'dummy', **kwargs)
 
-        self.assertEquals(kwargs['ex_force_auth_url'],
-            driver.connection._ex_force_auth_url)
-        self.assertEquals(kwargs['ex_force_auth_version'],
-            driver.connection._auth_version)
+        self.assertEqual(kwargs['ex_force_auth_url'],
+                         driver.connection._ex_force_auth_url)
+        self.assertEqual(kwargs['ex_force_auth_version'],
+                         driver.connection._auth_version)
 
     def test_invalid_json_throws_exception(self):
         CloudFilesMockHttp.type = 'MALFORMED_JSON'
@@ -147,16 +126,16 @@ class CloudFilesTests(unittest.TestCase):
             self.fail('Exception was not thrown')
 
     def test_service_catalog(self):
-        url = 'https://storage101.%s1.clouddrive.com/v1/MossoCloudFS' % \
-              (self.datacenter)
+        url = 'https://storage4.%s1.clouddrive.com/v1/MossoCloudFS' % \
+              (self.region)
         self.assertEqual(
-             url,
-             self.driver.connection.get_endpoint())
+            url,
+            self.driver.connection.get_endpoint())
 
         self.driver.connection.cdn_request = True
         self.assertEqual(
-             'https://cdn2.clouddrive.com/v1/MossoCloudFS',
-             self.driver.connection.get_endpoint())
+            'https://cdn.clouddrive.com/v1/MossoCloudFS',
+            self.driver.connection.get_endpoint())
         self.driver.connection.cdn_request = False
 
     def test_list_containers(self):
@@ -181,6 +160,31 @@ class CloudFilesTests(unittest.TestCase):
 
         CloudFilesMockHttp.type = None
         objects = self.driver.list_container_objects(container=container)
+        self.assertEqual(len(objects), 4)
+
+        obj = [o for o in objects if o.name == 'foo test 1'][0]
+        self.assertEqual(obj.hash, '16265549b5bda64ecdaa5156de4c97cc')
+        self.assertEqual(obj.size, 1160520)
+        self.assertEqual(obj.container.name, 'test_container')
+
+    def test_list_container_object_name_encoding(self):
+        CloudFilesMockHttp.type = 'EMPTY'
+        container = Container(name='test container 1', extra={},
+                              driver=self.driver)
+        objects = self.driver.list_container_objects(container=container)
+        self.assertEqual(len(objects), 0)
+
+    def test_list_container_objects_with_prefix(self):
+        CloudFilesMockHttp.type = 'EMPTY'
+        container = Container(
+            name='test_container', extra={}, driver=self.driver)
+        objects = self.driver.list_container_objects(container=container,
+                                                     ex_prefix='test_prefix1')
+        self.assertEqual(len(objects), 0)
+
+        CloudFilesMockHttp.type = None
+        objects = self.driver.list_container_objects(container=container,
+                                                     ex_prefix='test_prefix2')
         self.assertEqual(len(objects), 4)
 
         obj = [o for o in objects if o.name == 'foo test 1'][0]
@@ -225,6 +229,11 @@ class CloudFilesTests(unittest.TestCase):
             obj.extra['last_modified'], 'Tue, 25 Jan 2011 22:01:49 GMT')
         self.assertEqual(obj.meta_data['foo-bar'], 'test 1')
         self.assertEqual(obj.meta_data['bar-foo'], 'test 2')
+
+    def test_get_object_object_name_encoding(self):
+        obj = self.driver.get_object(container_name='test_container',
+                                     object_name='~/test_object/')
+        self.assertEqual(obj.name, '~/test_object/')
 
     def test_get_object_not_found(self):
         try:
@@ -352,12 +361,13 @@ class CloudFilesTests(unittest.TestCase):
                      container=container, meta_data=None,
                      driver=CloudFilesStorageDriver)
 
-        stream = self.driver.download_object_as_stream(obj=obj, chunk_size=None)
+        stream = self.driver.download_object_as_stream(
+            obj=obj, chunk_size=None)
         self.assertTrue(hasattr(stream, '__iter__'))
 
     def test_upload_object_success(self):
         def upload_file(self, response, file_path, chunked=False,
-                     calculate_hash=True):
+                        calculate_hash=True):
             return True, 'hash343hhash89h932439jsaa89', 1000
 
         old_func = CloudFilesStorageDriver._upload_file
@@ -366,8 +376,9 @@ class CloudFilesTests(unittest.TestCase):
         container = Container(name='foo_bar_container', extra={}, driver=self)
         object_name = 'foo_test_upload'
         extra = {'meta_data': {'some-value': 'foobar'}}
-        obj = self.driver.upload_object(file_path=file_path, container=container,
-                                        extra=extra, object_name=object_name)
+        obj = self.driver.upload_object(
+            file_path=file_path, container=container,
+            extra=extra, object_name=object_name)
         self.assertEqual(obj.name, 'foo_test_upload')
         self.assertEqual(obj.size, 1000)
         self.assertTrue('some-value' in obj.meta_data)
@@ -375,7 +386,7 @@ class CloudFilesTests(unittest.TestCase):
 
     def test_upload_object_zero_size_object(self):
         def upload_file(self, response, file_path, chunked=False,
-                     calculate_hash=True):
+                        calculate_hash=True):
             return True, 'hash343hhash89h932439jsaa89', 0
 
         old_func = CloudFilesStorageDriver._upload_file
@@ -393,8 +404,9 @@ class CloudFilesTests(unittest.TestCase):
 
         self.driver.connection.request = func
         func.called = False
-        obj = self.driver.upload_object(file_path=file_path, container=container,
-                                        extra=extra, object_name=object_name)
+        obj = self.driver.upload_object(
+            file_path=file_path, container=container,
+            extra=extra, object_name=object_name)
         self.assertEqual(obj.name, 'empty')
         self.assertEqual(obj.size, 0)
         self.assertTrue(func.called)
@@ -403,7 +415,7 @@ class CloudFilesTests(unittest.TestCase):
 
     def test_upload_object_invalid_hash(self):
         def upload_file(self, response, file_path, chunked=False,
-                     calculate_hash=True):
+                        calculate_hash=True):
             return True, 'hash343hhash89h932439jsaa89', 1000
 
         CloudFilesMockRawResponse.type = 'INVALID_HASH'
@@ -434,17 +446,13 @@ class CloudFilesTests(unittest.TestCase):
         file_path = os.path.abspath(__file__)
         container = Container(name='foo_bar_container', extra={}, driver=self)
         object_name = 'foo_test_upload'
-        try:
-            self.driver.upload_object(file_path=file_path, container=container,
-                                      object_name=object_name)
-        except AttributeError:
-            pass
-        else:
-            self.fail(
-                'File content type not provided'
-                ' but an exception was not thrown')
-        finally:
-            libcloud.utils.files.guess_file_mime_type = old_func
+
+        obj = self.driver.upload_object(file_path=file_path, verify_hash=False,
+                                        container=container,
+                                        object_name=object_name)
+
+        self.assertEqual(obj.name, object_name)
+        libcloud.utils.files.guess_file_mime_type = old_func
 
     def test_upload_object_error(self):
         def dummy_content_type(name):
@@ -469,7 +477,8 @@ class CloudFilesTests(unittest.TestCase):
         except LibcloudError:
             pass
         else:
-            self.fail('Timeout while uploading but an exception was not thrown')
+            self.fail(
+                'Timeout while uploading but an exception was not thrown')
         finally:
             libcloud.utils.files.guess_file_mime_type = old_func1
             CloudFilesMockHttp.send = old_func2
@@ -560,7 +569,7 @@ class CloudFilesTests(unittest.TestCase):
                      container=container, meta_data=None,
                      driver=self)
         self.assertTrue(self.driver.ex_purge_object_from_cdn(obj=obj,
-                                                       email='test@test.com'))
+                                                             email='test@test.com'))
 
     @mock.patch('os.path.getsize')
     def test_ex_multipart_upload_object_for_small_files(self, getsize_mock):
@@ -573,8 +582,9 @@ class CloudFilesTests(unittest.TestCase):
         file_path = os.path.abspath(__file__)
         container = Container(name='foo_bar_container', extra={}, driver=self)
         object_name = 'foo_test_upload'
-        obj = self.driver.ex_multipart_upload_object(file_path=file_path, container=container,
-                                       object_name=object_name)
+        obj = self.driver.ex_multipart_upload_object(
+            file_path=file_path, container=container,
+            object_name=object_name)
         CloudFilesStorageDriver.upload_object = old_func
 
         self.assertTrue(mocked_upload_object.called)
@@ -585,7 +595,8 @@ class CloudFilesTests(unittest.TestCase):
         _upload_object_manifest = CloudFilesStorageDriver._upload_object_manifest
 
         mocked__upload_object_part = mock.Mock(return_value="test_part")
-        mocked__upload_object_manifest = mock.Mock(return_value="test_manifest")
+        mocked__upload_object_manifest = mock.Mock(
+            return_value="test_manifest")
 
         CloudFilesStorageDriver._upload_object_part = mocked__upload_object_part
         CloudFilesStorageDriver._upload_object_manifest = mocked__upload_object_manifest
@@ -595,8 +606,9 @@ class CloudFilesTests(unittest.TestCase):
         chunk_size = int(math.ceil(float(os.path.getsize(file_path)) / parts))
         container = Container(name='foo_bar_container', extra={}, driver=self)
         object_name = 'foo_test_upload'
-        self.driver.ex_multipart_upload_object(file_path=file_path, container=container,
-                                       object_name=object_name, chunk_size=chunk_size)
+        self.driver.ex_multipart_upload_object(
+            file_path=file_path, container=container,
+            object_name=object_name, chunk_size=chunk_size)
 
         CloudFilesStorageDriver._upload_object_part = _upload_object_part
         CloudFilesStorageDriver._upload_object_manifest = _upload_object_manifest
@@ -615,13 +627,114 @@ class CloudFilesTests(unittest.TestCase):
         container = Container(name='foo_bar_container', extra={}, driver=self)
 
         self.driver._upload_object_part(container, object_name,
-                part_number, None)
+                                        part_number, None)
 
         CloudFilesStorageDriver._put_object = _put_object
 
         func_kwargs = tuple(mocked__put_object.call_args)[1]
-        self.assertEquals(func_kwargs['object_name'], expected_name)
-        self.assertEquals(func_kwargs['container'], container)
+        self.assertEqual(func_kwargs['object_name'], expected_name)
+        self.assertEqual(func_kwargs['container'], container)
+
+    def test_upload_object_via_stream_with_cors_headers(self):
+        """
+        Test we can add some ``Cross-origin resource sharing`` headers
+        to the request about to be sent.
+        """
+        cors_headers = {
+            'Access-Control-Allow-Origin': 'http://mozilla.com',
+            'Origin': 'http://storage.clouddrive.com',
+        }
+        expected_headers = {
+            # Automatically added headers
+            'Content-Type': 'application/octet-stream',
+            'Transfer-Encoding': 'chunked',
+        }
+        expected_headers.update(cors_headers)
+
+        def intercept_request(request_path,
+                              method=None, data=None,
+                              headers=None, raw=True):
+
+            # What we're actually testing
+            self.assertDictEqual(expected_headers, headers)
+
+            raise NotImplementedError('oops')
+        self.driver.connection.request = intercept_request
+
+        container = Container(name='CORS', extra={}, driver=self.driver)
+
+        try:
+            self.driver.upload_object_via_stream(
+                iterator=iter(b'blob data like an image or video'),
+                container=container,
+                object_name="test_object",
+                headers=cors_headers,
+            )
+        except NotImplementedError:
+            # Don't care about the response we'd have to mock anyway
+            # as long as we intercepted the request and checked its headers
+            pass
+        else:
+            self.fail('Expected NotImplementedError to be thrown to '
+                      'verify we actually checked the expected headers')
+
+    def test_upload_object_via_stream_python3_bytes_error(self):
+        container = Container(name='py3', extra={}, driver=self.driver)
+        bytes_blob = b'blob data like an image or video'
+
+        # This is mostly to check we didn't discover other errors along the way
+        mocked_response = container.upload_object_via_stream(
+            iterator=iter(bytes_blob),
+            object_name="img_or_vid",
+        )
+        self.assertEqual(len(bytes_blob), mocked_response.size)
+
+    def test_upload_object_via_stream_chunked_encoding(self):
+
+        # Create enough bytes it should get split into two chunks
+        bytes_blob = ''.join(['\0' for _ in range(CHUNK_SIZE + 1)])
+        hex_chunk_size = ('%X' % CHUNK_SIZE).encode('utf8')
+        expected = [
+            # Chunk 1
+            hex_chunk_size + b'\r\n',
+            bytes(bytes_blob[:CHUNK_SIZE].encode('utf8')),
+            b'\r\n',
+
+            # Chunk 2
+            b'1\r\n',
+            bytes(bytes_blob[CHUNK_SIZE:].encode('utf8')),
+            b'\r\n',
+
+            # If chunked, also send a final message
+            b'0\r\n\r\n',
+        ]
+        logged_data = []
+
+        class InterceptResponse(CloudFilesMockRawResponse):
+            def __init__(self, connection):
+                super(InterceptResponse, self).__init__(connection=connection)
+                old_send = self.connection.connection.send
+
+                def intercept_send(data):
+                    old_send(data)
+                    logged_data.append(data)
+                self.connection.connection.send = intercept_send
+
+            def _v1_MossoCloudFS_py3_img_or_vid2(self,
+                                                 method, url, body, headers):
+                headers = {'etag': 'd79fb00c27b50494a463e680d459c90c'}
+                headers.update(self.base_headers)
+                _201 = httplib.CREATED
+                return _201, '', headers, httplib.responses[_201]
+
+        self.driver_klass.connectionCls.rawResponseCls = InterceptResponse
+
+        container = Container(name='py3', extra={}, driver=self.driver)
+        container.upload_object_via_stream(
+            iterator=iter(bytes_blob),
+            object_name="img_or_vid2",
+        )
+        self.assertListEqual(expected, logged_data)
 
     def test__upload_object_manifest(self):
         hash_function = self.driver._get_hash_function()
@@ -629,8 +742,8 @@ class CloudFilesTests(unittest.TestCase):
         data_hash = hash_function.hexdigest()
 
         fake_response = type('CloudFilesResponse', (), {'headers':
-                {'etag': data_hash}
-            })
+                                                        {'etag': data_hash}
+                                                        })
 
         _request = self.driver.connection.request
         mocked_request = mock.Mock(return_value=fake_response)
@@ -645,14 +758,15 @@ class CloudFilesTests(unittest.TestCase):
 
         self.driver.connection.request = _request
 
-        self.assertEquals(func_args[0], "/" + container.name + "/" + object_name)
-        self.assertEquals(func_kwargs["headers"]["X-Object-Manifest"],
-                container.name + "/" + object_name + "/")
-        self.assertEquals(func_kwargs["method"], "PUT")
+        self.assertEqual(
+            func_args[0], "/" + container.name + "/" + object_name)
+        self.assertEqual(func_kwargs["headers"]["X-Object-Manifest"],
+                         container.name + "/" + object_name + "/")
+        self.assertEqual(func_kwargs["method"], "PUT")
 
     def test__upload_object_manifest_wrong_hash(self):
         fake_response = type('CloudFilesResponse', (), {'headers':
-            {'etag': '0000000'}})
+                                                        {'etag': '0000000'}})
 
         _request = self.driver.connection.request
         mocked_request = mock.Mock(return_value=fake_response)
@@ -660,7 +774,6 @@ class CloudFilesTests(unittest.TestCase):
 
         container = Container(name='foo_bar_container', extra={}, driver=self)
         object_name = "test_object"
-
 
         try:
             self.driver._upload_object_manifest(container, object_name)
@@ -673,7 +786,7 @@ class CloudFilesTests(unittest.TestCase):
 
     def test_create_container_put_object_name_encoding(self):
         def upload_file(self, response, file_path, chunked=False,
-                     calculate_hash=True):
+                        calculate_hash=True):
             return True, 'hash343hhash89h932439jsaa89', 1000
 
         old_func = CloudFilesStorageDriver._upload_file
@@ -686,8 +799,9 @@ class CloudFilesTests(unittest.TestCase):
         container = self.driver.create_container(container_name=container_name)
         self.assertEqual(container.name, container_name)
 
-        obj = self.driver.upload_object(file_path=file_path, container=container,
-                                        object_name=object_name)
+        obj = self.driver.upload_object(
+            file_path=file_path, container=container,
+            object_name=object_name)
         self.assertEqual(obj.name, object_name)
         CloudFilesStorageDriver._upload_file = old_func
 
@@ -700,7 +814,7 @@ class CloudFilesTests(unittest.TestCase):
     def test_ex_set_error_page(self):
         container = Container(name='foo_bar_container', extra={}, driver=self)
         result = self.driver.ex_set_error_page(container=container,
-                                              file_name='error.html')
+                                               file_name='error.html')
         self.assertTrue(result)
 
     def test_ex_set_account_metadata_temp_url_key(self):
@@ -723,9 +837,11 @@ class CloudFilesTests(unittest.TestCase):
                                     "/v1/MossoCloudFS/foo_bar_container/foo_bar_object")
         sig = hmac.new(b('foo'), b(hmac_body), sha1).hexdigest()
         ret = self.driver.ex_get_object_temp_url(obj, 'GET')
-        temp_url = 'https://storage101.%s1.clouddrive.com/v1/MossoCloudFS/foo_bar_container/foo_bar_object?temp_url_expires=60&temp_url_sig=%s' % (self.datacenter, sig)
+        temp_url = ('https://storage4.%s1.clouddrive.com/v1/MossoCloudFS/'
+                    'foo_bar_container/foo_bar_object?temp_url_expires=60&temp_url_sig=%s' %
+                    (self.region, sig))
 
-        self.assertEquals(''.join(sorted(ret)), ''.join(sorted(temp_url)))
+        self.assertEqual(''.join(sorted(ret)), ''.join(sorted(temp_url)))
 
     def test_ex_get_object_temp_url_no_key_raises_key_error(self):
         self.driver.ex_get_meta_data = mock.Mock()
@@ -737,7 +853,8 @@ class CloudFilesTests(unittest.TestCase):
         obj = Object(name='foo_bar_object', size=1000, hash=None, extra={},
                      container=container, meta_data=None,
                      driver=self)
-        self.assertRaises(KeyError, self.driver.ex_get_object_temp_url, obj, 'GET')
+        self.assertRaises(
+            KeyError, self.driver.ex_get_object_temp_url, obj, 'GET')
 
     def _remove_test_file(self):
         file_path = os.path.abspath(__file__) + '.temp'
@@ -750,35 +867,25 @@ class CloudFilesTests(unittest.TestCase):
 
 class CloudFilesDeprecatedUSTests(CloudFilesTests):
     driver_klass = CloudFilesUSStorageDriver
-    datacenter = 'ord'
+    region = 'ord'
 
 
 class CloudFilesDeprecatedUKTests(CloudFilesTests):
     driver_klass = CloudFilesUKStorageDriver
-    datacenter = 'lon'
+    region = 'lon'
 
 
 class CloudFilesMockHttp(StorageMockHttp, MockHttpTestCase):
 
     fixtures = StorageFileFixtures('cloudfiles')
-    auth_fixtures = OpenStackFixtures()
-    base_headers = { 'content-type': 'application/json; charset=UTF-8'}
+    base_headers = {'content-type': 'application/json; charset=UTF-8'}
 
     # fake auth token response
-    def _v1_0(self, method, url, body, headers):
+    def _v2_0_tokens(self, method, url, body, headers):
         headers = copy.deepcopy(self.base_headers)
-        headers.update({ 'x-server-management-url':
-                             'https://servers.api.rackspacecloud.com/v1.0/slug',
-                         'x-auth-token': 'FE011C19',
-                         'x-cdn-management-url':
-                             'https://cdn.clouddrive.com/v1/MossoCloudFS',
-                         'x-storage-token': 'FE011C19',
-                         'x-storage-url':
-                            'https://storage4.clouddrive.com/v1/MossoCloudFS'})
-        return (httplib.NO_CONTENT,
-                "",
-                headers,
-                httplib.responses[httplib.NO_CONTENT])
+        body = self.fixtures.load('_v2_0__auth.json')
+        return (httplib.OK, body, headers,
+                httplib.responses[httplib.OK])
 
     def _v1_MossoCloudFS_MALFORMED_JSON(self, method, url, body, headers):
         # test_invalid_json_throws_exception
@@ -804,10 +911,10 @@ class CloudFilesMockHttp(StorageMockHttp, MockHttpTestCase):
             # get_meta_data
             body = self.fixtures.load('meta_data.json')
             status_code = httplib.NO_CONTENT
-            headers.update({ 'x-account-container-count': 10,
-                             'x-account-object-count': 400,
-                             'x-account-bytes-used': 1234567
-                           })
+            headers.update({'x-account-container-count': 10,
+                            'x-account-object-count': 400,
+                            'x-account-bytes-used': 1234567
+                            })
         elif method == 'POST':
             body = ''
             status_code = httplib.NO_CONTENT
@@ -832,6 +939,13 @@ class CloudFilesMockHttp(StorageMockHttp, MockHttpTestCase):
                 self.base_headers,
                 httplib.responses[httplib.OK])
 
+    def _v1_MossoCloudFS_test_20container_201_EMPTY(self, method, url, body, headers):
+        body = self.fixtures.load('list_container_objects_empty.json')
+        return (httplib.OK,
+                body,
+                self.base_headers,
+                httplib.responses[httplib.OK])
+
     def _v1_MossoCloudFS_test_container(self, method, url, body, headers):
         headers = copy.deepcopy(self.base_headers)
         if method == 'GET':
@@ -846,29 +960,31 @@ class CloudFilesMockHttp(StorageMockHttp, MockHttpTestCase):
             # get_container
             body = self.fixtures.load('list_container_objects_empty.json')
             status_code = httplib.NO_CONTENT
-            headers.update({ 'x-container-object-count': 800,
-                             'x-container-bytes-used': 1234568
-                           })
+            headers.update({'x-container-object-count': 800,
+                            'x-container-bytes-used': 1234568
+                            })
         return (status_code, body, headers, httplib.responses[httplib.OK])
 
     def _v1_MossoCloudFS_test_container_ITERATOR(self, method, url, body, headers):
         headers = copy.deepcopy(self.base_headers)
         # list_container_objects
         if url.find('foo-test-3') != -1:
-            body = self.fixtures.load('list_container_objects_not_exhausted2.json')
+            body = self.fixtures.load(
+                'list_container_objects_not_exhausted2.json')
             status_code = httplib.OK
         elif url.find('foo-test-5') != -1:
             body = ''
             status_code = httplib.NO_CONTENT
         else:
             # First request
-            body = self.fixtures.load('list_container_objects_not_exhausted1.json')
+            body = self.fixtures.load(
+                'list_container_objects_not_exhausted1.json')
             status_code = httplib.OK
 
         return (status_code, body, headers, httplib.responses[httplib.OK])
 
     def _v1_MossoCloudFS_test_container_not_found(
-        self, method, url, body, headers):
+            self, method, url, body, headers):
         # test_get_container_not_found
         if method == 'HEAD':
             body = ''
@@ -880,29 +996,44 @@ class CloudFilesMockHttp(StorageMockHttp, MockHttpTestCase):
                 httplib.responses[httplib.OK])
 
     def _v1_MossoCloudFS_test_container_test_object(
-        self, method, url, body, headers):
+            self, method, url, body, headers):
         headers = copy.deepcopy(self.base_headers)
         if method == 'HEAD':
             # get_object
             body = self.fixtures.load('list_container_objects_empty.json')
             status_code = httplib.NO_CONTENT
-            headers.update({ 'content-length': 555,
-                             'last-modified': 'Tue, 25 Jan 2011 22:01:49 GMT',
-                             'etag': '6b21c4a111ac178feacf9ec9d0c71f17',
-                             'x-object-meta-foo-bar': 'test 1',
-                             'x-object-meta-bar-foo': 'test 2',
-                             'content-type': 'application/zip'})
+            headers.update({'content-length': 555,
+                            'last-modified': 'Tue, 25 Jan 2011 22:01:49 GMT',
+                            'etag': '6b21c4a111ac178feacf9ec9d0c71f17',
+                            'x-object-meta-foo-bar': 'test 1',
+                            'x-object-meta-bar-foo': 'test 2',
+                            'content-type': 'application/zip'})
+        return (status_code, body, headers, httplib.responses[httplib.OK])
+
+    def _v1_MossoCloudFS_test_container__7E_test_object(
+            self, method, url, body, headers):
+        headers = copy.deepcopy(self.base_headers)
+        if method == 'HEAD':
+            # get_object_name_encoding
+            body = self.fixtures.load('list_container_objects_empty.json')
+            status_code = httplib.NO_CONTENT
+            headers.update({'content-length': 555,
+                            'last-modified': 'Tue, 25 Jan 2011 22:01:49 GMT',
+                            'etag': '6b21c4a111ac178feacf9ec9d0c71f17',
+                            'x-object-meta-foo-bar': 'test 1',
+                            'x-object-meta-bar-foo': 'test 2',
+                            'content-type': 'application/zip'})
         return (status_code, body, headers, httplib.responses[httplib.OK])
 
     def _v1_MossoCloudFS_test_create_container(
-        self, method, url, body, headers):
+            self, method, url, body, headers):
         # test_create_container_success
         headers = copy.deepcopy(self.base_headers)
         body = self.fixtures.load('list_container_objects_empty.json')
         headers = copy.deepcopy(self.base_headers)
-        headers.update({ 'content-length': 18,
-                         'date': 'Mon, 28 Feb 2011 07:52:57 GMT'
-                       })
+        headers.update({'content-length': 18,
+                        'date': 'Mon, 28 Feb 2011 07:52:57 GMT'
+                        })
         status_code = httplib.CREATED
         return (status_code, body, headers, httplib.responses[httplib.OK])
 
@@ -916,18 +1047,18 @@ class CloudFilesMockHttp(StorageMockHttp, MockHttpTestCase):
         headers = copy.deepcopy(self.base_headers)
         body = self.fixtures.load('list_container_objects_empty.json')
         headers = copy.deepcopy(self.base_headers)
-        headers.update({ 'content-length': 18,
-                         'date': 'Mon, 28 Feb 2011 07:52:57 GMT'
-                       })
+        headers.update({'content-length': 18,
+                        'date': 'Mon, 28 Feb 2011 07:52:57 GMT'
+                        })
         status_code = httplib.CREATED
         return (status_code, body, headers, httplib.responses[httplib.OK])
 
     def _v1_MossoCloudFS_test_create_container_ALREADY_EXISTS(
-        self, method, url, body, headers):
+            self, method, url, body, headers):
         # test_create_container_already_exists
         headers = copy.deepcopy(self.base_headers)
         body = self.fixtures.load('list_container_objects_empty.json')
-        headers.update({ 'content-type': 'text/plain' })
+        headers.update({'content-type': 'text/plain'})
         status_code = httplib.ACCEPTED
         return (status_code, body, headers, httplib.responses[httplib.OK])
 
@@ -945,7 +1076,7 @@ class CloudFilesMockHttp(StorageMockHttp, MockHttpTestCase):
         return (status_code, body, headers, httplib.responses[httplib.OK])
 
     def _v1_MossoCloudFS_foo_bar_container_object_PURGE_SUCCESS(
-        self, method, url, body, headers):
+            self, method, url, body, headers):
 
         if method == 'DELETE':
             # test_ex_purge_from_cdn
@@ -954,7 +1085,7 @@ class CloudFilesMockHttp(StorageMockHttp, MockHttpTestCase):
         return (status_code, body, headers, httplib.responses[httplib.OK])
 
     def _v1_MossoCloudFS_foo_bar_container_object_PURGE_SUCCESS_EMAIL(
-        self, method, url, body, headers):
+            self, method, url, body, headers):
 
         if method == 'DELETE':
             # test_ex_purge_from_cdn_with_email
@@ -964,7 +1095,7 @@ class CloudFilesMockHttp(StorageMockHttp, MockHttpTestCase):
         return (status_code, body, headers, httplib.responses[httplib.OK])
 
     def _v1_MossoCloudFS_foo_bar_container_NOT_FOUND(
-        self, method, url, body, headers):
+            self, method, url, body, headers):
 
         if method == 'DELETE':
             # test_delete_container_not_found
@@ -974,7 +1105,7 @@ class CloudFilesMockHttp(StorageMockHttp, MockHttpTestCase):
         return (status_code, body, headers, httplib.responses[httplib.OK])
 
     def _v1_MossoCloudFS_foo_bar_container_NOT_EMPTY(
-        self, method, url, body, headers):
+            self, method, url, body, headers):
 
         if method == 'DELETE':
             # test_delete_container_not_empty
@@ -984,7 +1115,7 @@ class CloudFilesMockHttp(StorageMockHttp, MockHttpTestCase):
         return (status_code, body, headers, httplib.responses[httplib.OK])
 
     def _v1_MossoCloudFS_foo_bar_container_foo_bar_object(
-        self, method, url, body, headers):
+            self, method, url, body, headers):
 
         if method == 'DELETE':
             # test_delete_object_success
@@ -994,7 +1125,7 @@ class CloudFilesMockHttp(StorageMockHttp, MockHttpTestCase):
         return (status_code, body, headers, httplib.responses[httplib.OK])
 
     def _v1_MossoCloudFS_foo_bar_container_foo_bar_object_NOT_FOUND(
-        self, method, url, body, headers):
+            self, method, url, body, headers):
 
         if method == 'DELETE':
             # test_delete_object_success
@@ -1004,18 +1135,19 @@ class CloudFilesMockHttp(StorageMockHttp, MockHttpTestCase):
 
         return (status_code, body, headers, httplib.responses[httplib.OK])
 
-    def _v1_1_auth(self, method, url, body, headers):
-        body = self.auth_fixtures.load('_v1_1__auth.json')
-        return (httplib.OK, body, {'content-type': 'application/json; charset=UTF-8'}, httplib.responses[httplib.OK])
-
 
 class CloudFilesMockRawResponse(MockRawResponse):
 
     fixtures = StorageFileFixtures('cloudfiles')
-    base_headers = { 'content-type': 'application/json; charset=UTF-8'}
+    base_headers = {'content-type': 'application/json; charset=UTF-8'}
+
+    def _v1_MossoCloudFS_py3_img_or_vid(self, method, url, body, headers):
+        headers = {'etag': 'e2378cace8712661ce7beec3d9362ef6'}
+        headers.update(self.base_headers)
+        return httplib.CREATED, '', headers, httplib.responses[httplib.CREATED]
 
     def _v1_MossoCloudFS_foo_bar_container_foo_test_upload(
-        self, method, url, body, headers):
+            self, method, url, body, headers):
         # test_object_upload_success
 
         body = ''
@@ -1029,13 +1161,12 @@ class CloudFilesMockRawResponse(MockRawResponse):
         # test_create_container_put_object_name_encoding
         # Verify that the name is properly url encoded
         object_name = 'm@obj€ct'
-        encoded_object_name = urlquote(object_name)
+        urlquote(object_name)
 
         headers = copy.deepcopy(self.base_headers)
         body = ''
         headers['etag'] = 'hash343hhash89h932439jsaa89'
         return (httplib.CREATED, body, headers, httplib.responses[httplib.OK])
-
 
     def _v1_MossoCloudFS_foo_bar_container_empty(self, method, url, body,
                                                  headers):
@@ -1047,7 +1178,7 @@ class CloudFilesMockRawResponse(MockRawResponse):
         return (httplib.CREATED, body, headers, httplib.responses[httplib.OK])
 
     def _v1_MossoCloudFS_foo_bar_container_foo_test_upload_INVALID_HASH(
-        self, method, url, body, headers):
+            self, method, url, body, headers):
         # test_object_upload_invalid_hash
         body = ''
         headers = {}
@@ -1057,7 +1188,7 @@ class CloudFilesMockRawResponse(MockRawResponse):
                 httplib.responses[httplib.OK])
 
     def _v1_MossoCloudFS_foo_bar_container_foo_bar_object(
-        self, method, url, body, headers):
+            self, method, url, body, headers):
 
         # test_download_object_success
         body = self._generate_random_data(1000)
@@ -1067,7 +1198,7 @@ class CloudFilesMockRawResponse(MockRawResponse):
                 httplib.responses[httplib.OK])
 
     def _v1_MossoCloudFS_foo_bar_container_foo_bar_object_INVALID_SIZE(
-        self, method, url, body, headers):
+            self, method, url, body, headers):
         # test_download_object_invalid_file_size
         body = self._generate_random_data(100)
         return (httplib.OK, body,
@@ -1075,14 +1206,14 @@ class CloudFilesMockRawResponse(MockRawResponse):
                 httplib.responses[httplib.OK])
 
     def _v1_MossoCloudFS_foo_bar_container_foo_bar_object_NOT_FOUND(
-        self, method, url, body, headers):
+            self, method, url, body, headers):
         body = ''
         return (httplib.NOT_FOUND, body,
                 self.base_headers,
                 httplib.responses[httplib.OK])
 
     def _v1_MossoCloudFS_foo_bar_container_foo_test_stream_data(
-        self, method, url, body, headers):
+            self, method, url, body, headers):
 
         # test_upload_object_via_stream_success
         headers = {}

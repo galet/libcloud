@@ -32,49 +32,57 @@ __all__ = [
     "InvalidCredsException",
     "DEPRECATED_RACKSPACE_PROVIDERS",
     "OLD_CONSTANT_TO_NEW_MAPPING"
-    ]
+]
 
 
 class Provider(object):
     """
     Defines for each of the supported providers
 
-    @cvar DUMMY: Example provider
-    @cvar EC2_US_EAST: Amazon AWS US N. Virgina
-    @cvar EC2_US_WEST: Amazon AWS US N. California
-    @cvar EC2_EU_WEST: Amazon AWS EU Ireland
-    @cvar RACKSPACE: Rackspace next-gen OpenStack based Cloud Servers
-    @cvar RACKSPACE_FIRST_GEN: Rackspace First Gen Cloud Servers
-    @cvar SLICEHOST: Slicehost.com
-    @cvar GOGRID: GoGrid
-    @cvar VPSNET: VPS.net
-    @cvar LINODE: Linode.com
-    @cvar VCLOUD: vmware vCloud
-    @cvar RIMUHOSTING: RimuHosting.com
-    @cvar ECP: Enomaly
-    @cvar IBM: IBM Developer Cloud
-    @cvar OPENNEBULA: OpenNebula.org
-    @cvar DREAMHOST: DreamHost Private Server
-    @cvar CLOUDSIGMA: CloudSigma
-    @cvar NIMBUS: Nimbus
-    @cvar BLUEBOX: Bluebox
-    @cvar OPSOURCE: Opsource Cloud
-    @cvar NINEFOLD: Ninefold
-    @cvar TERREMARK: Terremark
-    @cvar EC2_US_WEST_OREGON: Amazon AWS US West 2 (Oregon)
-    @cvar CLOUDSTACK: CloudStack
-    @cvar CLOUDSIGMA_US: CloudSigma US Las Vegas
-    @cvar LIBVIRT: Libvirt driver
-    @cvar JOYENT: Joyent driver
-    @cvar VCL: VCL driver
-    @cvar KTUCLOUD: kt ucloud driver
-    @cvar GRIDSPOT: Gridspot driver
-    @cvar ABIQUO: Abiquo driver
+    :cvar DUMMY: Example provider
+    :cvar EC2_US_EAST: Amazon AWS US N. Virgina
+    :cvar EC2_US_WEST: Amazon AWS US N. California
+    :cvar EC2_EU_WEST: Amazon AWS EU Ireland
+    :cvar RACKSPACE: Rackspace next-gen OpenStack based Cloud Servers
+    :cvar RACKSPACE_FIRST_GEN: Rackspace First Gen Cloud Servers
+    :cvar GCE: Google Compute Engine
+    :cvar GOGRID: GoGrid
+    :cvar VPSNET: VPS.net
+    :cvar LINODE: Linode.com
+    :cvar VCLOUD: vmware vCloud
+    :cvar RIMUHOSTING: RimuHosting.com
+    :cvar ECP: Enomaly
+    :cvar IBM: IBM Developer Cloud
+    :cvar OPENNEBULA: OpenNebula.org
+    :cvar DREAMHOST: DreamHost Private Server
+    :cvar ELASTICHOSTS: ElasticHosts.com
+    :cvar CLOUDSIGMA: CloudSigma
+    :cvar NIMBUS: Nimbus
+    :cvar BLUEBOX: Bluebox
+    :cvar OPSOURCE: Opsource Cloud
+    :cvar NINEFOLD: Ninefold
+    :cvar TERREMARK: Terremark
+    :cvar EC2_US_WEST_OREGON: Amazon AWS US West 2 (Oregon)
+    :cvar CLOUDSTACK: CloudStack
+    :cvar CLOUDSIGMA_US: CloudSigma US Las Vegas
+    :cvar LIBVIRT: Libvirt driver
+    :cvar JOYENT: Joyent driver
+    :cvar VCL: VCL driver
+    :cvar KTUCLOUD: kt ucloud driver
+    :cvar GRIDSPOT: Gridspot driver
+    :cvar ABIQUO: Abiquo driver
+    :cvar NEPHOSCALE: NephoScale driver
+    :cvar EXOSCALE: Exoscale driver.
+    :cvar IKOULA: Ikoula driver.
+    :cvar OUTSCALE_SAS: Outscale SAS driver.
+    :cvar OUTSCALE_INC: Outscale INC driver.
+    :cvar PROFIT_BRICKS: ProfitBricks driver.
+    :cvar VULTR: vultr driver.
     """
     DUMMY = 'dummy'
     EC2 = 'ec2_us_east'
     RACKSPACE = 'rackspace'
-    SLICEHOST = 'slicehost'
+    GCE = 'gce'
     GOGRID = 'gogrid'
     VPSNET = 'vpsnet'
     LINODE = 'linode'
@@ -88,9 +96,6 @@ class Provider(object):
     OPENNEBULA = 'opennebula'
     DREAMHOST = 'dreamhost'
     ELASTICHOSTS = 'elastichosts'
-    ELASTICHOSTS_UK1 = 'elastichosts_uk1'
-    ELASTICHOSTS_UK2 = 'elastichosts_uk2'
-    ELASTICHOSTS_US1 = 'elastichosts_us1'
     BRIGHTBOX = 'brightbox'
     CLOUDSIGMA = 'cloudsigma'
     NIMBUS = 'nimbus'
@@ -103,10 +108,7 @@ class Provider(object):
     NINEFOLD = 'ninefold'
     TERREMARK = 'terremark'
     CLOUDSTACK = 'cloudstack'
-    CLOUDSIGMA_US = 'cloudsigma_us'
     LIBVIRT = 'libvirt'
-    ELASTICHOSTS_US2 = 'elastichosts_us2'
-    ELASTICHOSTS_CA1 = 'elastichosts_ca1'
     JOYENT = 'joyent'
     VCL = 'vcl'
     KTUCLOUD = 'ktucloud'
@@ -115,6 +117,19 @@ class Provider(object):
     HOSTVIRTUAL = 'hostvirtual'
     ABIQUO = 'abiquo'
     DIGITAL_OCEAN = 'digitalocean'
+    NEPHOSCALE = 'nephoscale'
+    CLOUDFRAMES = 'cloudframes'
+    EXOSCALE = 'exoscale'
+    IKOULA = 'ikoula'
+    OUTSCALE_SAS = 'outscale_sas'
+    OUTSCALE_INC = 'outscale_inc'
+    VSPHERE = 'vsphere'
+    PROFIT_BRICKS = 'profitbricks'
+    VULTR = 'vultr'
+
+    # OpenStack based providers
+    HPCLOUD = 'hpcloud'
+    KILI = 'kili'
 
     # Deprecated constants which are still supported
     EC2_US_EAST = 'ec2_us_east'
@@ -127,12 +142,26 @@ class Provider(object):
     EC2_SA_EAST = 'ec2_sa_east'
     EC2_AP_SOUTHEAST2 = 'ec2_ap_southeast_2'
 
+    ELASTICHOSTS_UK1 = 'elastichosts_uk1'
+    ELASTICHOSTS_UK2 = 'elastichosts_uk2'
+    ELASTICHOSTS_US1 = 'elastichosts_us1'
+    ELASTICHOSTS_US2 = 'elastichosts_us2'
+    ELASTICHOSTS_US3 = 'elastichosts_us3'
+    ELASTICHOSTS_CA1 = 'elastichosts_ca1'
+    ELASTICHOSTS_AU1 = 'elastichosts_au1'
+    ELASTICHOSTS_CN1 = 'elastichosts_cn1'
+
+    CLOUDSIGMA_US = 'cloudsigma_us'
+
     # Deprecated constants which aren't supported anymore
     RACKSPACE_UK = 'rackspace_uk'
     RACKSPACE_NOVA_BETA = 'rackspace_nova_beta'
     RACKSPACE_NOVA_DFW = 'rackspace_nova_dfw'
     RACKSPACE_NOVA_LON = 'rackspace_nova_lon'
     RACKSPACE_NOVA_ORD = 'rackspace_nova_ord'
+
+    # Removed
+    # SLICEHOST = 'slicehost'
 
 
 DEPRECATED_RACKSPACE_PROVIDERS = [Provider.RACKSPACE_UK,
@@ -155,25 +184,49 @@ class NodeState(object):
     """
     Standard states for a node
 
-    @cvar RUNNING: Node is running
-    @cvar REBOOTING: Node is rebooting
-    @cvar TERMINATED: Node is terminated
-    @cvar PENDING: Node is pending
-    @cvar UNKNOWN: Node state is unknown
+    :cvar RUNNING: Node is running.
+    :cvar REBOOTING: Node is rebooting.
+    :cvar TERMINATED: Node is terminated. This node can't be started later on.
+    :cvar STOPPED: Node is stopped. This node can be started later on.
+    :cvar PENDING: Node is pending.
+    :cvar STOPPED: Node is stopped.
+    :cvar SUSPENDED: Node is suspended.
+    :cvar ERROR: Node is an error state. Usually no operations can be performed
+                 on the node once it ends up in the error state.
+    :cvar PAUSED: Node is paused.
+    :cvar UNKNOWN: Node state is unknown.
     """
     RUNNING = 0
     REBOOTING = 1
     TERMINATED = 2
     PENDING = 3
     UNKNOWN = 4
+    STOPPED = 5
+    SUSPENDED = 6
+    ERROR = 7
+    PAUSED = 8
+
+    @classmethod
+    def tostring(cls, value):
+        values = cls.__dict__
+        values = dict([(key, string) for key, string in values.items() if
+                       not key.startswith('__')])
+
+        for item_key, item_value in values.items():
+            if value == item_value:
+                return item_key
+
+    @classmethod
+    def fromstring(cls, value):
+        return getattr(cls, value.upper(), None)
 
 
 class Architecture(object):
     """
     Image and size architectures.
 
-    @cvar I386: i386 (32 bt)
-    @cvar X86_64: x86_64 (64 bit)
+    :cvar I386: i386 (32 bt)
+    :cvar X86_64: x86_64 (64 bit)
     """
     I386 = 0
     X86_X64 = 1
@@ -183,7 +236,8 @@ class DeploymentError(LibcloudError):
     """
     Exception used when a Deployment Task failed.
 
-    @ivar node: L{Node} on which this exception happened, you might want to call L{Node.destroy}
+    :ivar node: :class:`Node` on which this exception happened, you might want
+                to call :func:`Node.destroy`
     """
     def __init__(self, node, original_exception=None, driver=None):
         self.node = node
@@ -198,5 +252,25 @@ class DeploymentError(LibcloudError):
                 % (self.node.id, str(self.value), str(self.driver))))
 
 
-"""Deprecated alias of L{DeploymentException}"""
+class KeyPairError(LibcloudError):
+    error_type = 'KeyPairError'
+
+    def __init__(self, name, driver):
+        self.name = name
+        self.value = 'Key pair with name %s does not exist' % (name)
+        super(KeyPairError, self).__init__(value=self.value, driver=driver)
+
+    def __str__(self):
+        return self.__repr__()
+
+    def __repr__(self):
+        return ('<%s name=%s, value=%s, driver=%s>' %
+                (self.error_type, self.name, self.value, self.driver.name))
+
+
+class KeyPairDoesNotExistError(KeyPairError):
+    error_type = 'KeyPairDoesNotExistError'
+
+
+"""Deprecated alias of :class:`DeploymentException`"""
 DeploymentException = DeploymentError

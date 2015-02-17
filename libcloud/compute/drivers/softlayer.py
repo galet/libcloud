@@ -16,39 +16,45 @@
 Softlayer driver
 """
 
-import sys
 import time
+try:
+    from Crypto.PublicKey import RSA
+    crypto = True
+except ImportError:
+    crypto = False
 
-import libcloud
-
-from libcloud.utils.py3 import xmlrpclib
-
-from libcloud.common.base import ConnectionUserAndKey
-from libcloud.common.xmlrpc import XMLRPCResponse, XMLRPCConnection
-from libcloud.common.types import InvalidCredsError, LibcloudError
+from libcloud.common.softlayer import SoftLayerConnection, SoftLayerException
 from libcloud.compute.types import Provider, NodeState
 from libcloud.compute.base import NodeDriver, Node, NodeLocation, NodeSize, \
-    NodeImage
+    NodeImage, KeyPair
+from libcloud.compute.types import KeyPairDoesNotExistError
+
+DEFAULT_DOMAIN = 'example.com'
+DEFAULT_CPU_SIZE = 1
+DEFAULT_RAM_SIZE = 2048
+DEFAULT_DISK_SIZE = 100
 
 DATACENTERS = {
     'hou02': {'country': 'US'},
-    'sea01': {'country': 'US'},
-    'wdc01': {'country': 'US'},
+    'sea01': {'country': 'US', 'name': 'Seattle - West Coast U.S.'},
+    'wdc01': {'country': 'US', 'name': 'Washington, DC - East Coast U.S.'},
     'dal01': {'country': 'US'},
     'dal02': {'country': 'US'},
     'dal04': {'country': 'US'},
-    'dal05': {'country': 'US'},
+    'dal05': {'country': 'US', 'name': 'Dallas - Central U.S.'},
     'dal06': {'country': 'US'},
     'dal07': {'country': 'US'},
-    'sjc01': {'country': 'US'},
-    'sng01': {'country': 'SG'},
-    'ams01': {'country': 'NL'},
+    'sjc01': {'country': 'US', 'name': 'San Jose - West Coast U.S.'},
+    'sng01': {'country': 'SG', 'name': 'Singapore - Southeast Asia'},
+    'ams01': {'country': 'NL', 'name': 'Amsterdam - Western Europe'},
+    'tok02': {'country': 'JP', 'name': 'Tokyo - Japan'},
 }
 
 NODE_STATE_MAP = {
     'RUNNING': NodeState.RUNNING,
-    'HALTED': NodeState.TERMINATED,
-    'PAUSED': NodeState.TERMINATED,
+    'HALTED': NodeState.UNKNOWN,
+    'PAUSED': NodeState.UNKNOWN,
+    'INITIATING': NodeState.PENDING
 }
 
 SL_BASE_TEMPLATES = [
@@ -63,8 +69,28 @@ SL_BASE_TEMPLATES = [
         'disk': 100,
         'cpus': 1,
     }, {
-        'name': '2 CPU, 2GB ram, 100GB',
+        'name': '1 CPU, 2GB ram, 100GB',
+        'ram': 2 * 1024,
+        'disk': 100,
+        'cpus': 1,
+    }, {
+        'name': '1 CPU, 4GB ram, 100GB',
         'ram': 4 * 1024,
+        'disk': 100,
+        'cpus': 1,
+    }, {
+        'name': '2 CPU, 2GB ram, 100GB',
+        'ram': 2 * 1024,
+        'disk': 100,
+        'cpus': 2,
+    }, {
+        'name': '2 CPU, 4GB ram, 100GB',
+        'ram': 4 * 1024,
+        'disk': 100,
+        'cpus': 2,
+    }, {
+        'name': '2 CPU, 8GB ram, 100GB',
+        'ram': 8 * 1024,
         'disk': 100,
         'cpus': 2,
     }, {
@@ -73,8 +99,28 @@ SL_BASE_TEMPLATES = [
         'disk': 100,
         'cpus': 4,
     }, {
+        'name': '4 CPU, 8GB ram, 100GB',
+        'ram': 8 * 1024,
+        'disk': 100,
+        'cpus': 4,
+    }, {
+        'name': '6 CPU, 4GB ram, 100GB',
+        'ram': 4 * 1024,
+        'disk': 100,
+        'cpus': 6,
+    }, {
+        'name': '6 CPU, 8GB ram, 100GB',
+        'ram': 8 * 1024,
+        'disk': 100,
+        'cpus': 6,
+    }, {
         'name': '8 CPU, 8GB ram, 100GB',
         'ram': 8 * 1024,
+        'disk': 100,
+        'cpus': 8,
+    }, {
+        'name': '8 CPU, 16GB ram, 100GB',
+        'ram': 16 * 1024,
         'disk': 100,
         'cpus': 8,
     }]
@@ -84,72 +130,7 @@ for i, template in enumerate(SL_BASE_TEMPLATES):
     # Add local disk templates
     local = template.copy()
     local['local_disk'] = True
-    SL_TEMPLATES['sl%s_local_disk' % (i + 1,)] = local
-
-    # Add san disk templates
-    san = template.copy()
-    san['local_disk'] = False
-    SL_TEMPLATES['sl%s_san_disk' % (i + 1,)] = san
-
-
-class SoftLayerException(LibcloudError):
-    """
-    Exception class for SoftLayer driver
-    """
-    pass
-
-
-class SoftLayerResponse(XMLRPCResponse):
-    defaultExceptionCls = SoftLayerException
-    exceptions = {
-        'SoftLayer_Account': InvalidCredsError,
-    }
-
-
-class SoftLayerConnection(XMLRPCConnection, ConnectionUserAndKey):
-    responseCls = SoftLayerResponse
-    host = 'api.softlayer.com'
-    endpoint = '/xmlrpc/v3'
-
-    def request(self, service, method, *args, **kwargs):
-        headers = {}
-        headers.update(self._get_auth_headers())
-        headers.update(self._get_init_params(service, kwargs.get('id')))
-        headers.update(
-            self._get_object_mask(service, kwargs.get('object_mask')))
-        headers.update(
-            self._get_object_mask(service, kwargs.get('object_mask')))
-
-        args = ({'headers': headers}, ) + args
-        endpoint = '%s/%s' % (self.endpoint, service)
-
-        return super(SoftLayerConnection, self).request(method, *args,
-                                                        **{'endpoint':
-                                                            endpoint})
-
-    def _get_auth_headers(self):
-        return {
-            'authenticate': {
-                'username': self.user_id,
-                'apiKey': self.key
-            }
-        }
-
-    def _get_init_params(self, service, id):
-        if id is not None:
-            return {
-                '%sInitParameters' % service: {'id': id}
-            }
-        else:
-            return {}
-
-    def _get_object_mask(self, service, mask):
-        if mask is not None:
-            return {
-                '%sObjectMask' % service: {'mask': mask}
-            }
-        else:
-            return {}
+    SL_TEMPLATES[i] = local
 
 
 class SoftLayerNodeDriver(NodeDriver):
@@ -168,7 +149,7 @@ class SoftLayerNodeDriver(NodeDriver):
     website = 'http://www.softlayer.com/'
     type = Provider.SOFTLAYER
 
-    features = {'create_node': ['generates_password']}
+    features = {'create_node': ['generates_password', 'ssh_key']}
 
     def _to_node(self, host):
         try:
@@ -183,17 +164,42 @@ class SoftLayerNodeDriver(NodeDriver):
         recurringMonths = host.get('billingItem', {}).get('recurringMonths', 0)
         createDate = host.get('createDate', None)
 
+        # When machine is launching it gets state halted
+        # we change this to pending
+        state = NODE_STATE_MAP.get(host['powerState']['keyName'],
+                                   NodeState.UNKNOWN)
+
+        if not password and state == NodeState.UNKNOWN:
+            state = NODE_STATE_MAP['INITIATING']
+
+        public_ips = []
+        private_ips = []
+
+        if 'primaryIpAddress' in host:
+            public_ips.append(host['primaryIpAddress'])
+
+        if 'primaryBackendIpAddress' in host:
+            private_ips.append(host['primaryBackendIpAddress'])
+
+        image = host.get('operatingSystem', {}).get('softwareLicense', {}) \
+                    .get('softwareDescription', {}) \
+                    .get('longDescription', None)
+
         return Node(
             id=host['id'],
-            name=host['hostname'],
-            state=NODE_STATE_MAP.get(
-                host['powerState']['keyName'], NodeState.UNKNOWN
-            ),
-            public_ips=[host['primaryIpAddress']],
-            private_ips=[host['primaryBackendIpAddress']],
+            name=host['fullyQualifiedDomainName'],
+            state=state,
+            public_ips=public_ips,
+            private_ips=private_ips,
             driver=self,
             extra={
+                'hostname': host['hostname'],
+                'fullyQualifiedDomainName': host['fullyQualifiedDomainName'],
                 'password': password,
+                'maxCpu': host.get('maxCpu', None),
+                'datacenter': host.get('datacenter', {}).get('longName', None),
+                'maxMemory': host.get('maxMemory', None),
+                'image': image,
                 'hourlyRecurringFee': hourlyRecurringFee,
                 'recurringFee': recurringFee,
                 'recurringMonths': recurringMonths,
@@ -210,6 +216,18 @@ class SoftLayerNodeDriver(NodeDriver):
     def reboot_node(self, node):
         self.connection.request(
             'SoftLayer_Virtual_Guest', 'rebootSoft', id=node.id
+        )
+        return True
+
+    def ex_stop_node(self, node):
+        self.connection.request(
+            'SoftLayer_Virtual_Guest', 'powerOff', id=node.id
+        )
+        return True
+
+    def ex_start_node(self, node):
+        self.connection.request(
+            'SoftLayer_Virtual_Guest', 'powerOn', id=node.id
         )
         return True
 
@@ -239,24 +257,26 @@ class SoftLayerNodeDriver(NodeDriver):
     def create_node(self, **kwargs):
         """Create a new SoftLayer node
 
-        @inherits: L{NodeDriver.create_node}
+        @inherits: :class:`NodeDriver.create_node`
 
-        @keyword    ex_domain: e.g. libcloud.org
-        @type       ex_domain: C{str}
-        @keyword    ex_cpus: e.g. 2
-        @type       ex_cpus: C{int}
-        @keyword    ex_disk: e.g. 100
-        @type       ex_disk: C{int}
-        @keyword    ex_ram: e.g. 2048
-        @type       ex_ram: C{int}
-        @keyword    ex_bandwidth: e.g. 100
-        @type       ex_bandwidth: C{int}
-        @keyword    ex_local_disk: e.g. True
-        @type       ex_local_disk: C{bool}
-        @keyword    ex_datacenter: e.g. Dal05
-        @type       ex_datacenter: C{str}
-        @keyword    ex_os: e.g. UBUNTU_LATEST
-        @type       ex_os: C{str}
+        :keyword    ex_domain: e.g. libcloud.org
+        :type       ex_domain: ``str``
+        :keyword    ex_cpus: e.g. 2
+        :type       ex_cpus: ``int``
+        :keyword    ex_disk: e.g. 100
+        :type       ex_disk: ``int``
+        :keyword    ex_ram: e.g. 2048
+        :type       ex_ram: ``int``
+        :keyword    ex_bandwidth: e.g. 100
+        :type       ex_bandwidth: ``int``
+        :keyword    ex_local_disk: e.g. True
+        :type       ex_local_disk: ``bool``
+        :keyword    ex_datacenter: e.g. Dal05
+        :type       ex_datacenter: ``str``
+        :keyword    ex_os: e.g. UBUNTU_LATEST
+        :type       ex_os: ``str``
+        :keyword    ex_keyname: The name of the key pair
+        :type       ex_keyname: ``str``
         """
         name = kwargs['name']
         os = 'DEBIAN_LATEST'
@@ -265,14 +285,16 @@ class SoftLayerNodeDriver(NodeDriver):
         elif 'image' in kwargs:
             os = kwargs['image'].id
 
-        size = kwargs.get('size', NodeSize(id=None, name='Custom', ram=None,
+        size = kwargs.get('size', NodeSize(id=123, name='Custom', ram=None,
                                            disk=None, bandwidth=None,
                                            price=None,
                                            driver=self.connection.driver))
-
-        ex_size_data = SL_TEMPLATES.get(size.id) or {}
-        cpu_count = kwargs.get('ex_cpus') or ex_size_data.get('cpus') or 1
-        ram = kwargs.get('ex_ram') or size.ram or 2048
+        ex_size_data = SL_TEMPLATES.get(int(size.id)) or {}
+        # plan keys are ints
+        cpu_count = kwargs.get('ex_cpus') or ex_size_data.get('cpus') or \
+            DEFAULT_CPU_SIZE
+        ram = kwargs.get('ex_ram') or ex_size_data.get('ram') or \
+            DEFAULT_RAM_SIZE
         bandwidth = kwargs.get('ex_bandwidth') or size.bandwidth or 10
         hourly = 'true' if kwargs.get('ex_hourly', True) else 'false'
 
@@ -283,7 +305,7 @@ class SoftLayerNodeDriver(NodeDriver):
         if kwargs.get('ex_local_disk') is False:
             local_disk = 'false'
 
-        disk_size = 100
+        disk_size = DEFAULT_DISK_SIZE
         if size.disk:
             disk_size = size.disk
         if kwargs.get('ex_disk'):
@@ -302,7 +324,7 @@ class SoftLayerNodeDriver(NodeDriver):
         if domain is None:
             # TODO: domain is a required argument for the Sofylayer API, but it
             # it shouldn't be.
-            domain = 'example.com'
+            domain = DEFAULT_DOMAIN
 
         newCCI = {
             'hostname': name,
@@ -327,6 +349,13 @@ class SoftLayerNodeDriver(NodeDriver):
         if datacenter:
             newCCI['datacenter'] = {'name': datacenter}
 
+        if 'ex_keyname' in kwargs:
+            newCCI['sshKeys'] = [
+                {
+                    'id': self._key_name_to_id(kwargs['ex_keyname'])
+                }
+            ]
+
         res = self.connection.request(
             'SoftLayer_Virtual_Guest', 'createObject', newCCI
         ).object
@@ -335,6 +364,59 @@ class SoftLayerNodeDriver(NodeDriver):
         raw_node = self._get_order_information(node_id)
 
         return self._to_node(raw_node)
+
+    def list_key_pairs(self):
+        result = self.connection.request(
+            'SoftLayer_Account', 'getSshKeys'
+        ).object
+        elems = [x for x in result]
+        key_pairs = self._to_key_pairs(elems=elems)
+        return key_pairs
+
+    def get_key_pair(self, name):
+        key_id = self._key_name_to_id(name=name)
+        result = self.connection.request(
+            'SoftLayer_Security_Ssh_Key', 'getObject', id=key_id
+        ).object
+        return self._to_key_pair(result)
+
+    # TODO: Check this with the libcloud guys,
+    # can we create new dependencies?
+    def create_key_pair(self, name, ex_size=4096):
+        if crypto is False:
+            raise NotImplementedError('create_key_pair needs'
+                                      'the pycrypto library')
+        key = RSA.generate(ex_size)
+        new_key = {
+            'key': key.publickey().exportKey('OpenSSH'),
+            'label': name,
+            'notes': '',
+        }
+        result = self.connection.request(
+            'SoftLayer_Security_Ssh_Key', 'createObject', new_key
+        ).object
+        result['private'] = key.exportKey('PEM')
+        return self._to_key_pair(result)
+
+    def import_key_pair_from_string(self, name, key_material):
+        new_key = {
+            'key': key_material,
+            'label': name,
+            'notes': '',
+        }
+        result = self.connection.request(
+            'SoftLayer_Security_Ssh_Key', 'createObject', new_key
+        ).object
+
+        key_pair = self._to_key_pair(result)
+        return key_pair
+
+    def delete_key_pair(self, key_pair):
+        key = self._key_name_to_id(key_pair)
+        result = self.connection.request(
+            'SoftLayer_Security_Ssh_Key', 'deleteObject', id=key
+        ).object
+        return result
 
     def _to_image(self, img):
         return NodeImage(
@@ -365,28 +447,58 @@ class SoftLayerNodeDriver(NodeDriver):
 
     def _to_loc(self, loc):
         country = 'UNKNOWN'
-        if loc['name'] in DATACENTERS:
-            country = DATACENTERS[loc['name']]['country']
-        return NodeLocation(id=loc['name'], name=loc['longName'],
+        loc_id = loc['template']['datacenter']['name']
+        name = loc_id
+
+        if loc_id in DATACENTERS:
+            country = DATACENTERS[loc_id]['country']
+            name = DATACENTERS[loc_id].get('name', loc_id)
+        return NodeLocation(id=loc_id, name=name,
                             country=country, driver=self)
 
     def list_locations(self):
         res = self.connection.request(
-            'SoftLayer_Location_Datacenter', 'getDatacenters'
+            'SoftLayer_Virtual_Guest', 'getCreateObjectOptions'
         ).object
-        return [self._to_loc(l) for l in res]
+        return [self._to_loc(l) for l in res['datacenters']]
 
     def list_nodes(self):
         mask = {
             'virtualGuests': {
                 'powerState': '',
+                'hostname': '',
+                'maxMemory': '',
+                'datacenter': '',
                 'operatingSystem': {'passwords': ''},
                 'billingItem': '',
             },
         }
         res = self.connection.request(
-            "SoftLayer_Account",
-            "getVirtualGuests",
+            'SoftLayer_Account',
+            'getVirtualGuests',
             object_mask=mask
         ).object
         return [self._to_node(h) for h in res]
+
+    def _to_key_pairs(self, elems):
+        key_pairs = [self._to_key_pair(elem=elem) for elem in elems]
+        return key_pairs
+
+    def _to_key_pair(self, elem):
+        key_pair = KeyPair(name=elem['label'],
+                           public_key=elem['key'],
+                           fingerprint=elem['fingerprint'],
+                           private_key=elem.get('private', None),
+                           driver=self,
+                           extra={'id': elem['id']})
+        return key_pair
+
+    def _key_name_to_id(self, name):
+        result = self.connection.request(
+            'SoftLayer_Account', 'getSshKeys'
+        ).object
+        key_id = [x for x in result if x['label'] == name]
+        if len(key_id) == 0:
+            raise KeyPairDoesNotExistError(name, self)
+        else:
+            return int(key_id[0]['id'])

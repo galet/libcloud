@@ -33,7 +33,7 @@ from libcloud.compute.base import Node, NodeDriver
 from libcloud.compute.base import NodeImage, NodeSize, NodeLocation
 from libcloud.compute.base import NodeAuthSSHKey, NodeAuthPassword
 
-API_ROOT = '/vapi'
+API_ROOT = ''
 
 NODE_STATE_MAP = {
     'BUILDING': NodeState.PENDING,
@@ -42,7 +42,8 @@ NODE_STATE_MAP = {
     'STOPPING': NodeState.REBOOTING,
     'REBOOTING': NodeState.REBOOTING,
     'STARTING': NodeState.REBOOTING,
-    'TERMINATED': NodeState.TERMINATED  # server is powered down
+    'TERMINATED': NodeState.TERMINATED,  # server is powered down
+    'STOPPED': NodeState.STOPPED
 }
 
 DEFAULT_NODE_LOCATION_ID = 4
@@ -61,10 +62,12 @@ class HostVirtualNodeDriver(NodeDriver):
     name = 'HostVirtual'
     website = 'http://www.vr.org'
     connectionCls = HostVirtualComputeConnection
+    features = {'create_node': ['ssh_key', 'password']}
 
-    def __init__(self, key):
+    def __init__(self, key, secure=True, host=None, port=None):
         self.location = None
-        NodeDriver.__init__(self, key)
+        super(HostVirtualNodeDriver, self).__init__(key=key, secure=secure,
+                                                    host=host, port=port)
 
     def _to_node(self, data):
         state = NODE_STATE_MAP[data['status']]
@@ -139,14 +142,14 @@ class HostVirtualNodeDriver(NodeDriver):
 
     def _wait_for_node(self, node_id, timeout=30, interval=5.0):
         """
-        @param node_id: ID of the node to wait for.
-        @type node_id: C{int}
+        :param node_id: ID of the node to wait for.
+        :type node_id: ``int``
 
-        @param timeout: Timeout (in seconds).
-        @type timeout: C{int}
+        :param timeout: Timeout (in seconds).
+        :type timeout: ``int``
 
-        @param interval: How long to wait (in seconds) between each attempt.
-        @type interval: C{float}
+        :param interval: How long to wait (in seconds) between each attempt.
+        :type interval: ``float``
         """
         # poll until we get a node
         for i in range(0, timeout, int(interval)):
@@ -163,6 +166,8 @@ class HostVirtualNodeDriver(NodeDriver):
 
         size = kwargs['size']
         image = kwargs['image']
+
+        auth = self._get_and_check_auth(kwargs.get('auth'))
 
         params = {'plan': size.name}
 
@@ -186,9 +191,12 @@ class HostVirtualNodeDriver(NodeDriver):
         })
 
         # provisioning a server using the stub node
-        self.ex_provision_node(node=stub_node, auth=kwargs['auth'])
-
+        self.ex_provision_node(node=stub_node, auth=auth)
         node = self._wait_for_node(stub_node.id)
+
+        if getattr(auth, 'generated', False):
+            node.extra['password'] = auth.password
+
         return node
 
     def reboot_node(self, node):
@@ -203,7 +211,7 @@ class HostVirtualNodeDriver(NodeDriver):
     def destroy_node(self, node):
         params = {
             'mbpkgid': node.id,
-            #'reason': 'Submitted through Libcloud API'
+            # 'reason': 'Submitted through Libcloud API'
         }
 
         result = self.connection.request(
@@ -216,10 +224,10 @@ class HostVirtualNodeDriver(NodeDriver):
         """
         Get a single node.
 
-        @param      node_id: id of the node that we need the node object for
-        @type       node_id: C{str}
+        :param      node_id: id of the node that we need the node object for
+        :type       node_id: ``str``
 
-        @rtype: L{Node}
+        :rtype: :class:`Node`
         """
 
         params = {'mbpkgid': node_id}
@@ -232,10 +240,10 @@ class HostVirtualNodeDriver(NodeDriver):
         """
         Stop a node.
 
-        @param      node: Node which should be used
-        @type       node: L{Node}
+        :param      node: Node which should be used
+        :type       node: :class:`Node`
 
-        @rtype: C{bool}
+        :rtype: ``bool``
         """
         params = {'force': 0, 'mbpkgid': node.id}
         result = self.connection.request(
@@ -249,10 +257,10 @@ class HostVirtualNodeDriver(NodeDriver):
         """
         Start a node.
 
-        @param      node: Node which should be used
-        @type       node: L{Node}
+        :param      node: Node which should be used
+        :type       node: :class:`Node`
 
-        @rtype: C{bool}
+        :rtype: ``bool``
         """
         params = {'mbpkgid': node.id}
         result = self.connection.request(
@@ -266,20 +274,20 @@ class HostVirtualNodeDriver(NodeDriver):
         """
         Provision a server on a VR package and get it booted
 
-        @keyword node: node which should be used
-        @type    node: L{Node}
+        :keyword node: node which should be used
+        :type    node: :class:`Node`
 
-        @keyword image: The distribution to deploy on your server (mandatory)
-        @type    image: L{NodeImage}
+        :keyword image: The distribution to deploy on your server (mandatory)
+        :type    image: :class:`NodeImage`
 
-        @keyword auth: an SSH key or root password (mandatory)
-        @type    auth: L{NodeAuthSSHKey} or L{NodeAuthPassword}
+        :keyword auth: an SSH key or root password (mandatory)
+        :type    auth: :class:`NodeAuthSSHKey` or :class:`NodeAuthPassword`
 
-        @keyword location: which datacenter to create the server in
-        @type    location: L{NodeLocation}
+        :keyword location: which datacenter to create the server in
+        :type    location: :class:`NodeLocation`
 
-        @return: Node representing the newly built server
-        @rtype: L{Node}
+        :return: Node representing the newly built server
+        :rtype: :class:`Node`
         """
 
         node = kwargs['node']
@@ -319,10 +327,10 @@ class HostVirtualNodeDriver(NodeDriver):
         """
         Delete a node.
 
-        @param      node: Node which should be used
-        @type       node: L{Node}
+        :param      node: Node which should be used
+        :type       node: :class:`Node`
 
-        @rtype: C{bool}
+        :rtype: ``bool``
         """
 
         params = {'mbpkgid': node.id}

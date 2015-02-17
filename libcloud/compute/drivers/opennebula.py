@@ -22,9 +22,13 @@ OpenNebula.org driver.
 
 __docformat__ = 'epytext'
 
-from xml.etree import ElementTree as ET
 from base64 import b64encode
 import hashlib
+
+try:
+    from lxml import etree as ET
+except ImportError:
+    from xml.etree import ElementTree as ET
 
 from libcloud.utils.py3 import httplib
 from libcloud.utils.py3 import next
@@ -32,7 +36,7 @@ from libcloud.utils.py3 import b
 
 from libcloud.compute.base import NodeState, NodeDriver, Node, NodeLocation
 from libcloud.common.base import ConnectionUserAndKey, XmlResponse
-from libcloud.compute.base import NodeImage, NodeSize
+from libcloud.compute.base import NodeImage, NodeSize, StorageVolume
 from libcloud.common.types import InvalidCredsError
 from libcloud.compute.providers import Provider
 
@@ -125,8 +129,8 @@ class OpenNebulaResponse(XmlResponse):
         Check if response has the appropriate HTTP response code to be a
         success.
 
-        @rtype:  C{bool}
-        @return: True is success, else False.
+        :rtype:  ``bool``
+        :return: True is success, else False.
         """
         i = int(self.status)
         return i >= 200 and i <= 299
@@ -135,10 +139,10 @@ class OpenNebulaResponse(XmlResponse):
         """
         Check if response contains any errors.
 
-        @raise: L{InvalidCredsError}
+        @raise: :class:`InvalidCredsError`
 
-        @rtype:  C{ElementTree}
-        @return: Contents of HTTP response body.
+        :rtype:  :class:`ElementTree`
+        :return: Contents of HTTP response body.
         """
         if int(self.status) == httplib.UNAUTHORIZED:
             raise InvalidCredsError(self.body)
@@ -169,11 +173,11 @@ class OpenNebulaConnection(ConnectionUserAndKey):
         Includes adding Basic HTTP Authorization headers for authenticating
         against the OpenNebula.org OCCI interface.
 
-        @type  headers: C{dict}
-        @param headers: Dictionary containing HTTP headers.
+        :type  headers: ``dict``
+        :param headers: Dictionary containing HTTP headers.
 
-        @rtype:  C{dict}
-        @return: Dictionary containing updated headers.
+        :rtype:  ``dict``
+        :return: Dictionary containing updated headers.
         """
         if self.plain_auth:
             passwd = self.key
@@ -221,7 +225,7 @@ class OpenNebulaNetwork(object):
     a driver and then have that create the network for you.
 
     >>> from libcloud.compute.drivers.dummy import DummyNodeDriver
-    >>> driver = DummyNetworkDriver()
+    >>> driver = DummyNodeDriver()
     >>> network = driver.create_network()
     >>> network = driver.list_networks()[0]
     >>> network.name
@@ -257,8 +261,8 @@ class OpenNebulaNetwork(object):
         Note, for example, that this example will always produce the
         same UUID!
 
-        @rtype:  C{string}
-        @return: Unique identifier for this instance.
+        :rtype:  ``str``
+        :return: Unique identifier for this instance.
         """
         return hashlib.sha1(b("%s:%s" % (self.id,
                                          self.driver.type))).hexdigest()
@@ -301,6 +305,8 @@ class OpenNebulaNodeDriver(NodeDriver):
                 cls = OpenNebula_3_0_NodeDriver
             elif api_version in ['3.2']:
                 cls = OpenNebula_3_2_NodeDriver
+            elif api_version in ['3.6']:
+                cls = OpenNebula_3_6_NodeDriver
             elif api_version in ['3.8']:
                 cls = OpenNebula_3_8_NodeDriver
                 if 'plain_auth' not in kwargs:
@@ -317,12 +323,12 @@ class OpenNebulaNodeDriver(NodeDriver):
         """
         Create a new OpenNebula node.
 
-        @inherits: L{NodeDriver.create_node}
+        @inherits: :class:`NodeDriver.create_node`
 
-        @keyword networks: List of virtual networks to which this node should
+        :keyword networks: List of virtual networks to which this node should
                            connect. (optional)
-        @type    networks: L{OpenNebulaNetwork} or
-            C{list} of L{OpenNebulaNetwork}
+        :type    networks: :class:`OpenNebulaNetwork` or
+            ``list`` of :class:`OpenNebulaNetwork`
         """
         compute = ET.Element('COMPUTE')
 
@@ -346,7 +352,7 @@ class OpenNebulaNodeDriver(NodeDriver):
                 if network.address:
                     ET.SubElement(networkGroup, 'NIC',
                                   {'network': '%s' % (str(network.id)),
-                                  'ip': network.address})
+                                   'ip': network.address})
                 else:
                     ET.SubElement(networkGroup, 'NIC',
                                   {'network': '%s' % (str(network.id))})
@@ -373,10 +379,10 @@ class OpenNebulaNodeDriver(NodeDriver):
         """
         Return list of sizes on a provider.
 
-        @inherits: L{NodeDriver.list_sizes}
+        @inherits: :class:`NodeDriver.list_sizes`
 
-        @return: List of compute node sizes supported by the cloud provider.
-        @rtype:  C{list} of L{OpenNebulaNodeSize}
+        :return: List of compute node sizes supported by the cloud provider.
+        :rtype:  ``list`` of :class:`OpenNebulaNodeSize`
         """
         return [
             NodeSize(id=1,
@@ -409,13 +415,13 @@ class OpenNebulaNodeDriver(NodeDriver):
         """
         List virtual networks on a provider.
 
-        @type  location: L{NodeLocation}
-        @param location: Location from which to request a list of virtual
+        :param location: Location from which to request a list of virtual
                          networks. (optional)
+        :type  location: :class:`NodeLocation`
 
-        @return: List of virtual networks available to be connected to a
+        :return: List of virtual networks available to be connected to a
                  compute node.
-        @rtype:  C{list} of L{OpenNebulaNetwork}
+        :rtype:  ``list`` of :class:`OpenNebulaNetwork`
         """
         return self._to_networks(self.connection.request('/network').object)
 
@@ -427,15 +433,15 @@ class OpenNebulaNodeDriver(NodeDriver):
         action which should be carried out on that compute node. Then
         instruct the node to carry out that action.
 
-        @param node: Compute node instance.
-        @type  node: L{Node}
+        :param node: Compute node instance.
+        :type  node: :class:`Node`
 
-        @param action: Action to be carried out on the compute node.
-        @type  action: C{str}
+        :param action: Action to be carried out on the compute node.
+        :type  action: ``str``
 
-        @return: False if an HTTP Bad Request is received, else, True is
+        :return: False if an HTTP Bad Request is received, else, True is
                  returned.
-        @rtype:  C{bool}
+        :rtype:  ``bool``
         """
         compute_node_id = str(node.id)
 
@@ -467,8 +473,8 @@ class OpenNebulaNodeDriver(NodeDriver):
         issue a request to convert each XML object representation of an image
         to a NodeImage object.
 
-        @rtype:  C{list} of L{NodeImage}
-        @return: List of images.
+        :rtype:  ``list`` of :class:`NodeImage`
+        :return: List of images.
         """
         images = []
         for element in object.findall('DISK'):
@@ -484,11 +490,11 @@ class OpenNebulaNodeDriver(NodeDriver):
         Take XML object containing an image description and convert to
         NodeImage object.
 
-        @type  image: L{ElementTree}
-        @param image: XML representation of an image.
+        :type  image: :class:`ElementTree`
+        :param image: XML representation of an image.
 
-        @rtype:  L{NodeImage}
-        @return: The newly extracted L{NodeImage}.
+        :rtype:  :class:`NodeImage`
+        :return: The newly extracted :class:`NodeImage`.
         """
         return NodeImage(id=image.findtext('ID'),
                          name=image.findtext('NAME'),
@@ -505,8 +511,8 @@ class OpenNebulaNodeDriver(NodeDriver):
         issue a request to convert each XML object representation of a network
         to an OpenNebulaNetwork object.
 
-        @rtype:  C{list} of L{OpenNebulaNetwork}
-        @return: List of virtual networks.
+        :rtype:  ``list`` of :class:`OpenNebulaNetwork`
+        :return: List of virtual networks.
         """
         networks = []
         for element in object.findall('NETWORK'):
@@ -525,8 +531,8 @@ class OpenNebulaNodeDriver(NodeDriver):
         Take XML representation containing a network description and
         convert to OpenNebulaNetwork object.
 
-        @rtype:  L{OpenNebulaNetwork}
-        @return: The newly extracted L{OpenNebulaNetwork}.
+        :rtype:  :class:`OpenNebulaNetwork`
+        :return: The newly extracted :class:`OpenNebulaNetwork`.
         """
         return OpenNebulaNetwork(id=element.findtext('ID'),
                                  name=element.findtext('NAME'),
@@ -543,8 +549,8 @@ class OpenNebulaNodeDriver(NodeDriver):
         issue a request to convert each XML object representation of a node
         to a Node object.
 
-        @rtype:  C{list} of L{Node}
-        @return: A list of compute nodes.
+        :rtype:  ``list`` of :class:`Node`
+        :return: A list of compute nodes.
         """
         computes = []
         for element in object.findall('COMPUTE'):
@@ -563,11 +569,11 @@ class OpenNebulaNodeDriver(NodeDriver):
         Take XML representation containing a compute node description and
         convert to Node object.
 
-        @type  compute: L{ElementTree}
-        @param compute: XML representation of a compute node.
+        :type  compute: :class:`ElementTree`
+        :param compute: XML representation of a compute node.
 
-        @rtype:  L{Node}
-        @return: The newly extracted L{Node}.
+        :rtype:  :class:`Node`
+        :return: The newly extracted :class:`Node`.
         """
         try:
             state = self.NODE_STATE_MAP[compute.findtext('STATE').upper()]
@@ -589,11 +595,11 @@ class OpenNebulaNodeDriver(NodeDriver):
         Extract network descriptions from a compute node XML representation,
         converting each network to an OpenNebulaNetwork object.
 
-        @type  compute: L{ElementTree}
-        @param compute: XML representation of a compute node.
+        :type  compute: :class:`ElementTree`
+        :param compute: XML representation of a compute node.
 
-        @rtype:  C{list} of L{OpenNebulaNetwork}s.
-        @return: List of virtual networks attached to the compute node.
+        :rtype:  ``list`` of :class:`OpenNebulaNetwork`s.
+        :return: List of virtual networks attached to the compute node.
         """
         networks = list()
 
@@ -615,11 +621,11 @@ class OpenNebulaNodeDriver(NodeDriver):
         Extract image disk descriptions from a compute node XML representation,
         converting the disks to an NodeImage object.
 
-        @type  compute: L{ElementTree}
-        @param compute: XML representation of a compute node.
+        :type  compute: :class:`ElementTree`
+        :param compute: XML representation of a compute node.
 
-        @rtype:  L{NodeImage}.
-        @return: First disk attached to a compute node.
+        :rtype:  :class:`NodeImage`.
+        :return: First disk attached to a compute node.
         """
         disks = list()
 
@@ -645,7 +651,7 @@ class OpenNebula_1_4_NodeDriver(OpenNebulaNodeDriver):
     OpenNebula.org node driver for OpenNebula.org v1.4.
     """
 
-    pass
+    name = 'OpenNebula (v1.4)'
 
 
 class OpenNebula_2_0_NodeDriver(OpenNebulaNodeDriver):
@@ -654,23 +660,25 @@ class OpenNebula_2_0_NodeDriver(OpenNebulaNodeDriver):
     v2.2.
     """
 
+    name = 'OpenNebula (v2.0 - v2.2)'
+
     def create_node(self, **kwargs):
         """
         Create a new OpenNebula node.
 
-        @inherits: L{NodeDriver.create_node}
+        @inherits: :class:`NodeDriver.create_node`
 
-        @keyword networks: List of virtual networks to which this node should
+        :keyword networks: List of virtual networks to which this node should
                            connect. (optional)
-        @type    networks: L{OpenNebulaNetwork} or C{list}
-                           of L{OpenNebulaNetwork}
+        :type    networks: :class:`OpenNebulaNetwork` or ``list``
+                           of :class:`OpenNebulaNetwork`
 
-        @keyword context: Custom (key, value) pairs to be injected into
+        :keyword context: Custom (key, value) pairs to be injected into
                           compute node XML description. (optional)
-        @type    context: C{dict}
+        :type    context: ``dict``
 
-        @return: Instance of a newly created node.
-        @rtype:  L{Node}
+        :return: Instance of a newly created node.
+        :rtype:  :class:`Node`
         """
         compute = ET.Element('COMPUTE')
 
@@ -720,10 +728,10 @@ class OpenNebula_2_0_NodeDriver(OpenNebulaNodeDriver):
         """
         Return list of sizes on a provider.
 
-        @inherits: L{NodeDriver.list_sizes}
+        @inherits: :class:`NodeDriver.list_sizes`
 
-        @return: List of compute node sizes supported by the cloud provider.
-        @rtype:  C{list} of L{OpenNebulaNodeSize}
+        :return: List of compute node sizes supported by the cloud provider.
+        :rtype:  ``list`` of :class:`OpenNebulaNodeSize`
         """
         return [
             OpenNebulaNodeSize(id=1,
@@ -769,8 +777,8 @@ class OpenNebula_2_0_NodeDriver(OpenNebulaNodeDriver):
         issue a request to convert each XML object representation of an image
         to a NodeImage object.
 
-        @rtype:  C{list} of L{NodeImage}
-        @return: List of images.
+        :rtype:  ``list`` of :class:`NodeImage`
+        :return: List of images.
         """
         images = []
         for element in object.findall('STORAGE'):
@@ -786,11 +794,11 @@ class OpenNebula_2_0_NodeDriver(OpenNebulaNodeDriver):
         Take XML object containing an image description and convert to
         NodeImage object.
 
-        @type  image: L{ElementTree}
-        @param image: XML representation of an image.
+        :type  image: :class:`ElementTree`
+        :param image: XML representation of an image.
 
-        @rtype:  L{NodeImage}
-        @return: The newly extracted L{NodeImage}.
+        :rtype:  :class:`NodeImage`
+        :return: The newly extracted :class:`NodeImage`.
         """
         return NodeImage(id=image.findtext('ID'),
                          name=image.findtext('NAME'),
@@ -808,11 +816,11 @@ class OpenNebula_2_0_NodeDriver(OpenNebulaNodeDriver):
         Take XML representation containing a compute node description and
         convert to Node object.
 
-        @type  compute: L{ElementTree}
-        @param compute: XML representation of a compute node.
+        :type  compute: :class:`ElementTree`
+        :param compute: XML representation of a compute node.
 
-        @rtype:  L{Node}
-        @return: The newly extracted L{Node}.
+        :rtype:  :class:`Node`
+        :return: The newly extracted :class:`Node`.
         """
         try:
             state = self.NODE_STATE_MAP[compute.findtext('STATE').upper()]
@@ -836,11 +844,11 @@ class OpenNebula_2_0_NodeDriver(OpenNebulaNodeDriver):
         Extract network descriptions from a compute node XML representation,
         converting each network to an OpenNebulaNetwork object.
 
-        @type  compute: L{ElementTree}
-        @param compute: XML representation of a compute node.
+        :type  compute: :class:`ElementTree`
+        :param compute: XML representation of a compute node.
 
-        @rtype:  C{list} of L{OpenNebulaNetwork}
-        @return: List of virtual networks attached to the compute node.
+        :rtype:  ``list`` of :class:`OpenNebulaNetwork`
+        :return: List of virtual networks attached to the compute node.
         """
         networks = []
 
@@ -865,28 +873,36 @@ class OpenNebula_2_0_NodeDriver(OpenNebulaNodeDriver):
         Extract image disk descriptions from a compute node XML representation,
         converting the disks to an NodeImage object.
 
-        @type  compute: L{ElementTree}
-        @param compute: XML representation of a compute node.
+        :type  compute: :class:`ElementTree`
+        :param compute: XML representation of a compute node.
 
-        @rtype:  L{NodeImage}
-        @return: First disk attached to a compute node.
+        :rtype:  ``list`` of :class:`NodeImage`
+        :return: Disks attached to a compute node.
         """
         disks = list()
 
         for element in compute.findall('DISK'):
             disk = element.find('STORAGE')
-            disk_id = disk.attrib['href'].partition('/storage/')[2]
+            image_id = disk.attrib['href'].partition('/storage/')[2]
+
+            if 'id' in element.attrib:
+                disk_id = element.attrib['id']
+            else:
+                disk_id = None
 
             disks.append(
-                NodeImage(id=disk_id,
+                NodeImage(id=image_id,
                           name=disk.attrib.get('name', None),
                           driver=self.connection.driver,
                           extra={'type': element.findtext('TYPE'),
+                                 'disk_id': disk_id,
                                  'target': element.findtext('TARGET')}))
 
-        # @TODO: Return all disks when the Node type accepts multiple
-        # attached disks per node.
-        if len(disks) > 0:
+        # Return all disks when the Node type accepts multiple attached disks
+        # per node.
+        if len(disks) > 1:
+            return disks
+        elif len(disks) == 1:
             return disks[0]
         else:
             return None
@@ -898,11 +914,11 @@ class OpenNebula_2_0_NodeDriver(OpenNebulaNodeDriver):
         Extract node size, or node type, description from a compute node XML
         representation, converting the node size to a NodeSize object.
 
-        @type  compute: L{ElementTree}
-        @param compute: XML representation of a compute node.
+        :type  compute: :class:`ElementTree`
+        :param compute: XML representation of a compute node.
 
-        @rtype:  L{OpenNebulaNodeSize}
-        @return: Node type of compute node.
+        :rtype:  :class:`OpenNebulaNodeSize`
+        :return: Node type of compute node.
         """
         instance_type = compute.find('INSTANCE_TYPE')
 
@@ -919,11 +935,11 @@ class OpenNebula_2_0_NodeDriver(OpenNebulaNodeDriver):
         Extract node size, or node type, description from a compute node XML
         representation, converting the node size to a NodeSize object.
 
-        @type  compute: L{ElementTree}
-        @param compute: XML representation of a compute node.
+        :type  compute: :class:`ElementTree`
+        :param compute: XML representation of a compute node.
 
-        @rtype:  C{dict}
-        @return: Dictionary containing (key, value) pairs related to
+        :rtype:  ``dict``
+        :return: Dictionary containing (key, value) pairs related to
                  compute node context.
         """
         contexts = dict()
@@ -941,6 +957,8 @@ class OpenNebula_3_0_NodeDriver(OpenNebula_2_0_NodeDriver):
     OpenNebula.org node driver for OpenNebula.org v3.0.
     """
 
+    name = 'OpenNebula (v3.0)'
+
     def ex_node_set_save_name(self, node, name):
         """
         Build action representation and instruct node to commit action.
@@ -949,16 +967,16 @@ class OpenNebula_3_0_NodeDriver(OpenNebula_2_0_NodeDriver):
         which will be saved, and the name under which the image will be saved
         upon shutting down the compute node.
 
-        @param node: Compute node instance.
-        @type  node: L{Node}
+        :param node: Compute node instance.
+        :type  node: :class:`Node`
 
-        @param name: Name under which the image should be saved after shutting
+        :param name: Name under which the image should be saved after shutting
                      down the compute node.
-        @type  name: C{str}
+        :type  name: ``str``
 
-        @return: False if an HTTP Bad Request is received, else, True is
+        :return: False if an HTTP Bad Request is received, else, True is
                  returned.
-        @rtype:  C{bool}
+        :rtype:  ``bool``
         """
         compute_node_id = str(node.id)
 
@@ -994,8 +1012,8 @@ class OpenNebula_3_0_NodeDriver(OpenNebula_2_0_NodeDriver):
         Take XML representation containing a network description and
         convert to OpenNebulaNetwork object.
 
-        @return: The newly extracted L{OpenNebulaNetwork}.
-        @rtype:  L{OpenNebulaNetwork}
+        :return: The newly extracted :class:`OpenNebulaNetwork`.
+        :rtype:  :class:`OpenNebulaNetwork`
         """
         return OpenNebulaNetwork(id=element.findtext('ID'),
                                  name=element.findtext('NAME'),
@@ -1010,6 +1028,8 @@ class OpenNebula_3_2_NodeDriver(OpenNebula_3_0_NodeDriver):
     OpenNebula.org node driver for OpenNebula.org v3.2.
     """
 
+    name = 'OpenNebula (v3.2)'
+
     def reboot_node(self, node):
         return self.ex_node_action(node, ACTION.REBOOT)
 
@@ -1017,10 +1037,10 @@ class OpenNebula_3_2_NodeDriver(OpenNebula_3_0_NodeDriver):
         """
         Return list of sizes on a provider.
 
-        @inherits: L{NodeDriver.list_sizes}
+        @inherits: :class:`NodeDriver.list_sizes`
 
-        @return: List of compute node sizes supported by the cloud provider.
-        @rtype:  C{list} of L{OpenNebulaNodeSize}
+        :return: List of compute node sizes supported by the cloud provider.
+        :rtype:  ``list`` of :class:`OpenNebulaNodeSize`
         """
         return self._to_sizes(self.connection.request('/instance_type').object)
 
@@ -1033,8 +1053,8 @@ class OpenNebula_3_2_NodeDriver(OpenNebula_3_0_NodeDriver):
         and issue a request to convert each XML object representation of an
         instance type to an OpenNebulaNodeSize object.
 
-        @return: List of instance types.
-        @rtype:  C{list} of L{OpenNebulaNodeSize}
+        :return: List of instance types.
+        :rtype:  ``list`` of :class:`OpenNebulaNodeSize`
         """
         sizes = []
         size_id = 1
@@ -1071,11 +1091,133 @@ class OpenNebula_3_2_NodeDriver(OpenNebula_3_0_NodeDriver):
         return values
 
 
-class OpenNebula_3_8_NodeDriver(OpenNebula_3_2_NodeDriver):
+class OpenNebula_3_6_NodeDriver(OpenNebula_3_2_NodeDriver):
+    """
+    OpenNebula.org node driver for OpenNebula.org v3.6.
+    """
+
+    name = 'OpenNebula (v3.6)'
+
+    def create_volume(self, size, name, location=None, snapshot=None):
+        storage = ET.Element('STORAGE')
+
+        vol_name = ET.SubElement(storage, 'NAME')
+        vol_name.text = name
+
+        vol_type = ET.SubElement(storage, 'TYPE')
+        vol_type.text = 'DATABLOCK'
+
+        description = ET.SubElement(storage, 'DESCRIPTION')
+        description.text = 'Attached storage'
+
+        public = ET.SubElement(storage, 'PUBLIC')
+        public.text = 'NO'
+
+        persistent = ET.SubElement(storage, 'PERSISTENT')
+        persistent.text = 'YES'
+
+        fstype = ET.SubElement(storage, 'FSTYPE')
+        fstype.text = 'ext3'
+
+        vol_size = ET.SubElement(storage, 'SIZE')
+        vol_size.text = str(size)
+
+        xml = ET.tostring(storage)
+        volume = self.connection.request('/storage',
+                                         {'occixml': xml},
+                                         method='POST').object
+
+        return self._to_volume(volume)
+
+    def destroy_volume(self, volume):
+        url = '/storage/%s' % (str(volume.id))
+        resp = self.connection.request(url, method='DELETE')
+
+        return resp.status == httplib.NO_CONTENT
+
+    def attach_volume(self, node, volume, device):
+        action = ET.Element('ACTION')
+
+        perform = ET.SubElement(action, 'PERFORM')
+        perform.text = 'ATTACHDISK'
+
+        params = ET.SubElement(action, 'PARAMS')
+
+        ET.SubElement(params,
+                      'STORAGE',
+                      {'href': '/storage/%s' % (str(volume.id))})
+
+        target = ET.SubElement(params, 'TARGET')
+        target.text = device
+
+        xml = ET.tostring(action)
+
+        url = '/compute/%s/action' % node.id
+
+        resp = self.connection.request(url, method='POST', data=xml)
+        return resp.status == httplib.ACCEPTED
+
+    def _do_detach_volume(self, node_id, disk_id):
+        action = ET.Element('ACTION')
+
+        perform = ET.SubElement(action, 'PERFORM')
+        perform.text = 'DETACHDISK'
+
+        params = ET.SubElement(action, 'PARAMS')
+
+        ET.SubElement(params,
+                      'DISK',
+                      {'id': disk_id})
+
+        xml = ET.tostring(action)
+
+        url = '/compute/%s/action' % node_id
+
+        resp = self.connection.request(url, method='POST', data=xml)
+        return resp.status == httplib.ACCEPTED
+
+    def detach_volume(self, volume):
+        # We need to find the node using this volume
+        for node in self.list_nodes():
+            if type(node.image) is not list:
+                # This node has only one associated image. It is not the one we
+                # are after.
+                continue
+
+            for disk in node.image:
+                if disk.id == volume.id:
+                    # Node found. We can now detach the volume
+                    disk_id = disk.extra['disk_id']
+                    return self._do_detach_volume(node.id, disk_id)
+
+        return False
+
+    def list_volumes(self):
+        return self._to_volumes(self.connection.request('/storage').object)
+
+    def _to_volume(self, storage):
+        return StorageVolume(id=storage.findtext('ID'),
+                             name=storage.findtext('NAME'),
+                             size=int(storage.findtext('SIZE')),
+                             driver=self.connection.driver)
+
+    def _to_volumes(self, object):
+        volumes = []
+        for storage in object.findall('STORAGE'):
+            storage_id = storage.attrib['href'].partition('/storage/')[2]
+
+            volumes.append(self._to_volume(
+                self.connection.request('/storage/%s' % storage_id).object))
+
+        return volumes
+
+
+class OpenNebula_3_8_NodeDriver(OpenNebula_3_6_NodeDriver):
     """
     OpenNebula.org node driver for OpenNebula.org v3.8.
     """
 
+    name = 'OpenNebula (v3.8)'
     plain_auth = API_PLAIN_AUTH
 
     def _to_sizes(self, object):
@@ -1087,8 +1229,8 @@ class OpenNebula_3_8_NodeDriver(OpenNebula_3_2_NodeDriver):
         and issue a request to convert each XML object representation of an
         instance type to an OpenNebulaNodeSize object.
 
-        @return: List of instance types.
-        @rtype:  C{list} of L{OpenNebulaNodeSize}
+        :return: List of instance types.
+        :rtype:  ``list`` of :class:`OpenNebulaNodeSize`
         """
         sizes = []
         size_id = 1
@@ -1114,9 +1256,9 @@ class OpenNebula_3_8_NodeDriver(OpenNebula_3_2_NodeDriver):
 
     def _ex_connection_class_kwargs(self):
         """
-        Set plain_auth as an extra L{OpenNebulaConnection_3_8} argument
+        Set plain_auth as an extra :class:`OpenNebulaConnection_3_8` argument
 
-        @return: C{dict} of L{OpenNebulaConnection_3_8} input arguments
+        :return: ``dict`` of :class:`OpenNebulaConnection_3_8` input arguments
         """
 
         return {'plain_auth': self.plain_auth}
