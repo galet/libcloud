@@ -1,0 +1,114 @@
+<VAppTemplate ovfDescriptorUploaded="true" goldMaster="false" status="8" name="infra-6.5-4" id="urn:vcloud:vapptemplate:7d18a2dd-d6cb-440a-aea1-7efe962403d2" type="application/vnd.vmware.vcloud.vAppTemplate+xml" href="https://vcd-director/api/vAppTemplate/vappTemplate-7d18a2dd-d6cb-440a-aea1-7efe962403d2" xsi:schemaLocation="http://schemas.dmtf.org/ovf/envelope/1 http://schemas.dmtf.org/ovf/envelope/1/dsp8023_1.1.0.xsd http://www.vmware.com/vcloud/v1.5 http://68.99.64.41/api/v1.5/schema/master.xsd" xmlns="http://www.vmware.com/vcloud/v1.5" xmlns:ovf="http://schemas.dmtf.org/ovf/envelope/1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+   <Link rel="up" type="application/vnd.vmware.vcloud.vdc+xml" href="https://vm-vcloud/api/vdc/3d9ae28c-1de9-4307-8107-9356ff8ba6d0"/>
+   <Link rel="catalogItem" type="application/vnd.vmware.vcloud.catalogItem+xml" href="https://vcd-director/api/catalogItem/fe00aa08-90b4-4430-83de-af28f56ce6d0"/>
+   <Link rel="remove" href="https://vcd-director/api/vAppTemplate/vappTemplate-7d18a2dd-d6cb-440a-aea1-7efe962403d2"/>
+   <Link rel="edit" type="application/vnd.vmware.vcloud.vAppTemplate+xml" href="https://vcd-director/api/vAppTemplate/vappTemplate-7d18a2dd-d6cb-440a-aea1-7efe962403d2"/>
+   <Link rel="enable" href="https://vcd-director/api/vAppTemplate/vappTemplate-7d18a2dd-d6cb-440a-aea1-7efe962403d2/action/enableDownload"/>
+   <Link rel="disable" href="https://vcd-director/api/vAppTemplate/vappTemplate-7d18a2dd-d6cb-440a-aea1-7efe962403d2/action/disableDownload"/>
+   <Link rel="ovf" type="text/xml" href="https://vcd-director/api/vAppTemplate/vappTemplate-7d18a2dd-d6cb-440a-aea1-7efe962403d2/ovf"/>
+   <Link rel="down" type="application/vnd.vmware.vcloud.owner+xml" href="https://vcd-director/api/vAppTemplate/vappTemplate-7d18a2dd-d6cb-440a-aea1-7efe962403d2/owner"/>
+   <Link rel="down" type="application/vnd.vmware.vcloud.metadata+xml" href="https://vcd-director/api/vAppTemplate/vappTemplate-7d18a2dd-d6cb-440a-aea1-7efe962403d2/metadata"/>
+   <Description>infra-6.5-4</Description>
+   <Owner type="application/vnd.vmware.vcloud.owner+xml">
+      <User type="application/vnd.vmware.admin.user+xml" name="system" href="https://vcd-director/api/admin/user/c92c9bf9-b10a-49e2-8ddf-3dd537a29f5b"/>
+   </Owner>
+   <Children>
+      <Vm goldMaster="false" name="infra-6.5-4" id="urn:vcloud:vm:4f9d6977-27e5-4ccd-86eb-69b2ac814d53" type="application/vnd.vmware.vcloud.vm+xml" href="https://vcd-director/api/vAppTemplate/vm-4f9d6977-27e5-4ccd-86eb-69b2ac814d53">
+         <Link rel="up" type="application/vnd.vmware.vcloud.vAppTemplate+xml" href="https://vcd-director/api/vAppTemplate/vappTemplate-7d18a2dd-d6cb-440a-aea1-7efe962403d2"/>
+         <Link rel="down" type="application/vnd.vmware.vcloud.metadata+xml" href="https://vcd-director/api/vAppTemplate/vm-4f9d6977-27e5-4ccd-86eb-69b2ac814d53/metadata"/>
+         <NetworkConnectionSection type="application/vnd.vmware.vcloud.networkConnectionSection+xml" href="https://vcd-director/api/vAppTemplate/vm-4f9d6977-27e5-4ccd-86eb-69b2ac814d53/networkConnectionSection/" ovf:required="false">
+            <ovf:Info>Specifies the available VM network connections</ovf:Info>
+            <PrimaryNetworkConnectionIndex>0</PrimaryNetworkConnectionIndex>
+            <NetworkConnection network="Default vDC Network" needsCustomization="true">
+               <NetworkConnectionIndex>0</NetworkConnectionIndex>
+               <IsConnected>true</IsConnected>
+               <MACAddress>00:50:56:02:01:e8</MACAddress>
+               <IpAddressAllocationMode>DHCP</IpAddressAllocationMode>
+            </NetworkConnection>
+         </NetworkConnectionSection>
+         <GuestCustomizationSection type="application/vnd.vmware.vcloud.guestCustomizationSection+xml" href="https://vcd-director/api/vAppTemplate/vm-4f9d6977-27e5-4ccd-86eb-69b2ac814d53/guestCustomizationSection/" ovf:required="false">
+            <ovf:Info>Specifies Guest OS Customization Settings</ovf:Info>
+            <Enabled>true</Enabled>
+            <ChangeSid>false</ChangeSid>
+            <VirtualMachineId>4f9d6977-27e5-4ccd-86eb-69b2ac814d53</VirtualMachineId>
+            <JoinDomainEnabled>false</JoinDomainEnabled>
+            <UseOrgSettings>false</UseOrgSettings>
+            <AdminPasswordEnabled>false</AdminPasswordEnabled>
+            <AdminPasswordAuto>true</AdminPasswordAuto>
+            <AdminPassword>%2oQbu96</AdminPassword>
+            <ResetPasswordRequired>false</ResetPasswordRequired>
+            <ComputerName>infra-654</ComputerName>
+         </GuestCustomizationSection>
+         <VAppScopedLocalId>vm</VAppScopedLocalId>
+      </Vm>
+   </Children>
+   <ovf:NetworkSection ns12:href="https://vcd-director/api/vAppTemplate/vappTemplate-7d18a2dd-d6cb-440a-aea1-7efe962403d2/networkSection/" ns12:type="application/vnd.vmware.vcloud.networkSection+xml" xmlns:ns12="http://www.vmware.com/vcloud/v1.5">
+      <ovf:Info>The list of logical networks</ovf:Info>
+      <ovf:Network ovf:name="Default vDC Network">
+         <ovf:Description>The Default vDC Network network</ovf:Description>
+      </ovf:Network>
+   </ovf:NetworkSection>
+   <NetworkConfigSection type="application/vnd.vmware.vcloud.networkConfigSection+xml" href="https://vcd-director/api/vAppTemplate/vappTemplate-7d18a2dd-d6cb-440a-aea1-7efe962403d2/networkConfigSection/" ovf:required="false">
+      <ovf:Info>The configuration parameters for logical networks</ovf:Info>
+      <NetworkConfig networkName="Default vDC Network">
+         <Description>The Default vDC Network network</Description>
+         <Configuration>
+            <IpScope>
+               <IsInherited>true</IsInherited>
+               <Gateway>68.99.64.1</Gateway>
+               <Netmask>255.255.252.0</Netmask>
+               <Dns1>68.99.42.113</Dns1>
+               <Dns2>68.99.42.116</Dns2>
+               <DnsSuffix>vm.example.com</DnsSuffix>
+               <IpRanges>
+                  <IpRange>
+                     <StartAddress>68.99.66.229</StartAddress>
+                     <EndAddress>68.99.66.255</EndAddress>
+                  </IpRange>
+                  <IpRange>
+                     <StartAddress>68.99.66.1</StartAddress>
+                     <EndAddress>68.99.66.6</EndAddress>
+                  </IpRange>
+                  <IpRange>
+                     <StartAddress>68.99.66.8</StartAddress>
+                     <EndAddress>68.99.66.227</EndAddress>
+                  </IpRange>
+                  <IpRange>
+                     <StartAddress>68.99.65.245</StartAddress>
+                     <EndAddress>68.99.65.255</EndAddress>
+                  </IpRange>
+                  <IpRange>
+                     <StartAddress>68.99.65.20</StartAddress>
+                     <EndAddress>68.99.65.67</EndAddress>
+                  </IpRange>
+                  <IpRange>
+                     <StartAddress>68.99.67.1</StartAddress>
+                     <EndAddress>68.99.67.254</EndAddress>
+                  </IpRange>
+                  <IpRange>
+                     <StartAddress>68.99.65.234</StartAddress>
+                     <EndAddress>68.99.65.243</EndAddress>
+                  </IpRange>
+                  <IpRange>
+                     <StartAddress>68.99.65.69</StartAddress>
+                     <EndAddress>68.99.65.232</EndAddress>
+                  </IpRange>
+               </IpRanges>
+            </IpScope>
+            <ParentNetwork name="Default vDC Network" href=""/>
+            <FenceMode>bridged</FenceMode>
+            <RetainNetInfoAcrossDeployments>false</RetainNetInfoAcrossDeployments>
+         </Configuration>
+         <IsDeployed>false</IsDeployed>
+      </NetworkConfig>
+   </NetworkConfigSection>
+   <LeaseSettingsSection type="application/vnd.vmware.vcloud.leaseSettingsSection+xml" href="https://vcd-director/api/vAppTemplate/vappTemplate-7d18a2dd-d6cb-440a-aea1-7efe962403d2/leaseSettingsSection/" ovf:required="false">
+      <ovf:Info>Lease settings section</ovf:Info>
+      <Link rel="edit" type="application/vnd.vmware.vcloud.leaseSettingsSection+xml" href="https://vcd-director/api/vAppTemplate/vappTemplate-7d18a2dd-d6cb-440a-aea1-7efe962403d2/leaseSettingsSection/"/>
+      <StorageLeaseInSeconds>0</StorageLeaseInSeconds>
+   </LeaseSettingsSection>
+   <CustomizationSection type="application/vnd.vmware.vcloud.customizationSection+xml" href="https://vcd-director/api/vAppTemplate/vappTemplate-7d18a2dd-d6cb-440a-aea1-7efe962403d2/customizationSection/" goldMaster="false" ovf:required="false">
+      <ovf:Info>VApp template customization section</ovf:Info>
+      <CustomizeOnInstantiate>true</CustomizeOnInstantiate>
+   </CustomizationSection>
+</VAppTemplate>

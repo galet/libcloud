@@ -29,6 +29,7 @@ from libcloud.utils.py3 import next
 urlparse = urlparse.urlparse
 
 import time
+import datetime
 
 try:
     from lxml import etree as ET
@@ -48,7 +49,7 @@ from libcloud.compute.base import NodeSize, NodeImage
 From vcloud api "The VirtualQuantity element defines the number of MB
 of memory. This should be either 512 or a multiple of 1024 (1 GB)."
 """
-VIRTUAL_MEMORY_VALS = [512] + [1024 * i for i in range(1, 9)]
+VIRTUAL_MEMORY_VALS = [512] + [1024 * i for i in range(1, 33)]
 
 # Default timeout (in seconds) for long running tasks
 DEFAULT_TASK_COMPLETION_TIMEOUT = 600
@@ -79,15 +80,17 @@ class Vdc(object):
     """
     Virtual datacenter (vDC) representation
     """
-    def __init__(self, id, name, driver, allocation_model=None, cpu=None,
-                 memory=None, storage=None):
+    def __init__(self, id, name, driver, enabled=True, allocation_model=None,
+                 cpu=None, memory=None, storage=None, vm_quota=None):
         self.id = id
         self.name = name
         self.driver = driver
+        self.enabled = enabled
         self.allocation_model = allocation_model
         self.cpu = cpu
         self.memory = memory
         self.storage = storage
+        self.vm_quota = vm_quota
 
     def __repr__(self):
         return ('<Vdc: id=%s, name=%s, driver=%s  ...>'
@@ -143,6 +146,102 @@ class Subject(object):
     def __repr__(self):
         return ('<Subject: type=%s, name=%s, access_level=%s>'
                 % (self.type, self.name, self.access_level))
+
+
+class QueryResult(object):
+    """
+    Query result object. Is iterable with lazy loading.
+    :keyword  driver: driver object
+    :type     driver: ``VCloudDriver``
+
+    :keyword  type: type of record to query (ex. vApp, vm, user etc.)
+    :type     type: ``str``
+
+    :keyword  filter: filter expression.
+                    See http://www.vmware.com/pdf/vcd_15_api_guide.pdf
+    :type     filter: ``str``
+
+    :keyword  sort_asc: sort in ascending order by specified field
+    :type     sort_asc: ``str``
+
+    :keyword  sort_desc: sort in descending order by specified field
+    :type     sort_desc: ``str``
+
+    :keyword  page_size: page size for internal pagination
+    :type     page_size: ``int``
+    """
+    def __init__(self, driver, type, filter, sort_asc, sort_desc, page_size):
+        self.driver = driver
+        self.page_size = page_size
+
+        self.params = {
+            'type': type,
+            'pageSize': page_size
+        }
+        if sort_asc:
+            self.params['sortAsc'] = sort_asc
+        if sort_desc:
+            self.params['sortDesc'] = sort_desc
+
+        self.url = '/api/query?' + urlencode(self.params)
+        if filter:
+            if not filter.startswith('('):
+                filter = '(' + filter + ')'
+            self.url += '&filter=' + filter.replace(' ', '+')
+
+        self.id = self.url
+        self.total = 0
+        self._page = 0
+        self._fetch_page()
+
+    def __len__(self):
+        return self.total
+
+    def __iter__(self):
+        return self.iterate_records()
+
+    def iterate_records(self):
+        current_index = 0
+        while self._records:
+            item = self._records.pop(0)
+            yield item
+
+            # Are we at the end?
+            current_index += 1
+            if current_index >= self.total:
+                raise StopIteration
+
+            if not self._records:
+                try:
+                    self._fetch_page()
+                except Exception:
+                    e = sys.exc_info()[1]
+                    if (len(e.args) > 0 and
+                            isinstance(e.args[0], _ElementInterface) and
+                            e.args[0].tag.endswith('Error') and
+                            e.args[0].get('minorErrorCode') == 'BAD_REQUEST' and
+                            re.match('Invalid parameter page=\\d+ must be less'
+                                     ' or equal to \\d+', e.args[0].get('message'))):
+                        raise StopIteration
+                    else:
+                        raise e
+
+    def _fetch_page(self):
+        self._records = []
+        self._page += 1
+        res = self.driver.connection.request('%s&page=%s' %
+                                             (self.url, self._page))
+        for elem in res.object:
+            if not elem.tag.endswith('Link'):
+                result = elem.attrib
+                result['type'] = elem.tag.split('}')[1]
+                self._records.append(result)
+        self.total = int(res.object.get('total'))
+        self.name = res.object.get('name')
+
+    def __repr__(self):
+        return ('<QueryResult: id=%s, total=%s, page=%s ...>'
+                % (self.id, self.total, self._page))
 
 
 class InstantiateVAppXML(object):
@@ -324,13 +423,17 @@ class VCloudConnection(ConnectionUserAndKey):
         # the only way to get our org is by logging in.
         self._get_auth_token()
 
+    @property
+    def _accept_header(self):
+        return 'application/*+xml'
+
     def _get_auth_headers(self):
         """Some providers need different headers than others"""
         return {
             'Authorization': "Basic %s" % base64.b64encode(
                 b('%s:%s' % (self.user_id, self.key))).decode('utf-8'),
             'Content-Length': '0',
-            'Accept': 'application/*+xml'
+            'Accept': self._accept_header
         }
 
     def _get_auth_token(self):
@@ -355,7 +458,7 @@ class VCloudConnection(ConnectionUserAndKey):
 
     def add_default_headers(self, headers):
         headers['Cookie'] = self.token
-        headers['Accept'] = 'application/*+xml'
+        headers['Accept'] = self._accept_header
         return headers
 
 
@@ -861,32 +964,40 @@ class VCloud_1_5_Connection(VCloudConnection):
             )
 
     def add_default_headers(self, headers):
-        headers['Accept'] = 'application/*+xml;version=1.5'
+        headers['Accept'] = self._accept_header
         headers['x-vcloud-authorization'] = self.token
         return headers
 
 
 class Instantiate_1_5_VAppXML(object):
+    def __init__(self, driver, name, image, **kwargs):
+        self.driver = driver
+        self.root = self._make_instantiation_root(name)
+        self._add_network(**kwargs)
+        self._add_vapp_template(image)
 
-    def __init__(self, name, template, network, vm_network=None,
-                 vm_fence=None):
-        self.name = name
-        self.template = template
-        self.network = network
-        self.vm_network = vm_network
-        self.vm_fence = vm_fence
-        self._build_xmltree()
+    def _make_instantiation_root(self, name):
+        return ET.Element(
+            'InstantiateVAppTemplateParams',
+            {'name': name,
+             'deploy': 'false',
+             'powerOn': 'false',
+             'xml:lang': 'en',
+             'xmlns': 'http://www.vmware.com/vcloud/v1.5',
+             'xmlns:xsi': 'http://www.w3.org/2001/XMLSchema-instance'}
+        )
 
-    def tostring(self):
-        return ET.tostring(self.root)
+    def _add_network(self, **kwargs):
+        # Some providers don't require a network link
+        ex_network = kwargs.get('ex_network')
+        if ex_network:
+            network_href = self.driver._get_network_href(ex_network)
+            network = self.driver.connection.request(
+                get_url_path(network_href)).object
 
-    def _build_xmltree(self):
-        self.root = self._make_instantiation_root()
-
-        if self.network is not None:
-            instantionation_params = ET.SubElement(self.root,
+            instantiation_params = ET.SubElement(self.root,
                                                    'InstantiationParams')
-            network_config_section = ET.SubElement(instantionation_params,
+            network_config_section = ET.SubElement(instantiation_params,
                                                    'NetworkConfigSection')
             ET.SubElement(
                 network_config_section,
@@ -895,49 +1006,38 @@ class Instantiate_1_5_VAppXML(object):
             )
             network_config = ET.SubElement(network_config_section,
                                            'NetworkConfig')
-            self._add_network_association(network_config)
+            self.__add_network_association(network_config,
+                                           network,
+                                           kwargs.get('ex_vm_network'),
+                                           kwargs.get('ex_vm_fence'))
 
-        self._add_vapp_template(self.root)
-
-    def _make_instantiation_root(self):
-        return ET.Element(
-            'InstantiateVAppTemplateParams',
-            {'name': self.name,
-             'deploy': 'false',
-             'powerOn': 'false',
-             'xml:lang': 'en',
-             'xmlns': 'http://www.vmware.com/vcloud/v1.5',
-             'xmlns:xsi': 'http://www.w3.org/2001/XMLSchema-instance'}
-        )
-
-    def _add_vapp_template(self, parent):
+    def _add_vapp_template(self, template):
         return ET.SubElement(
-            parent,
+            self.root,
             'Source',
-            {'href': self.template}
+            {'href': template.id}
         )
 
-    def _add_network_association(self, parent):
-        if self.vm_network is None:
-            # Don't set a custom vApp VM network name
-            parent.set('networkName', self.network.get('name'))
-        else:
-            # Set a custom vApp VM network name
-            parent.set('networkName', self.vm_network)
+    def __add_network_association(self, parent, network, vm_network, vm_fence):
+        if vm_network is None:
+            vm_network = network.get('name')
+        parent.set('networkName', vm_network)
+
         configuration = ET.SubElement(parent, 'Configuration')
         ET.SubElement(configuration, 'ParentNetwork',
-                      {'href': self.network.get('href')})
-
-        if self.vm_fence is None:
-            fencemode = self.network.find(fixxpath(self.network,
+                      {'href': network.get('href')})
+        if vm_fence is None:
+            vm_fence = network.find(fixxpath(network,
                                           'Configuration/FenceMode')).text
-        else:
-            fencemode = self.vm_fence
-        ET.SubElement(configuration, 'FenceMode').text = fencemode
+        ET.SubElement(configuration, 'FenceMode').text = vm_fence
+
+    def tostring(self):
+        return ET.tostring(self.root)
 
 
 class VCloud_1_5_NodeDriver(VCloudNodeDriver):
     connectionCls = VCloud_1_5_Connection
+    instantiationCls = Instantiate_1_5_VAppXML
 
     # Based on
     # http://pubs.vmware.com/vcloud-api-1-5/api_prog/
@@ -1212,7 +1312,7 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
                 if not res:
                     raise LibcloudError('Specified subject "%s %s" not found '
                                         % (subject.type, subject.name))
-                href = res[0]['href']
+                href = res.iterate_records().next()['href']
             ET.SubElement(setting, 'Subject', {'href': href})
             ET.SubElement(setting, 'AccessLevel').text = subject.access_level
 
@@ -1263,11 +1363,7 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
             {'xmlns': "http://www.vmware.com/vcloud/v1.5",
              'xmlns:xsi': "http://www.w3.org/2001/XMLSchema-instance"}
         )
-        entry = ET.SubElement(metadata_elem, 'MetadataEntry')
-        key_elem = ET.SubElement(entry, 'Key')
-        key_elem.text = key
-        value_elem = ET.SubElement(entry, 'Value')
-        value_elem.text = value
+        self._add_metadata_entry_element(metadata_elem, key, value)
 
         # send it back to the server
         res = self.connection.request(
@@ -1279,7 +1375,14 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
             method='POST')
         self._wait_for_task_completion(res.object.get('href'))
 
-    def ex_query(self, type, filter=None, page=1, page_size=100, sort_asc=None,
+    def _add_metadata_entry_element(self, parent_elm, key, value):
+        entry = ET.SubElement(parent_elm, 'MetadataEntry')
+        key_elem = ET.SubElement(entry, 'Key')
+        key_elem.text = key
+        value_elem = ET.SubElement(entry, 'Value')
+        value_elem.text = value
+
+    def ex_query(self, type, filter=None, page_size=100, sort_asc=None,
                  sort_desc=None):
         """
         Queries vCloud for specified type. See
@@ -1293,9 +1396,6 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
         :param filter: filter expression (see documentation for syntax)
         :type  filter: ``str``
 
-        :param page: page number
-        :type  page: ``int``
-
         :param page_size: page size
         :type  page_size: ``int``
 
@@ -1305,35 +1405,14 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
         :param sort_desc: sort in descending order by specified field
         :type  sort_desc: ``str``
 
-        :rtype: ``list`` of dict
+        :rtype: ``QueryResult``
         """
-        # This is a workaround for filter parameter encoding
-        # the urllib encodes (name==Developers%20Only) into
-        # %28name%3D%3DDevelopers%20Only%29) which is not accepted by vCloud
-        params = {
-            'type': type,
-            'pageSize': page_size,
-            'page': page,
-        }
-        if sort_asc:
-            params['sortAsc'] = sort_asc
-        if sort_desc:
-            params['sortDesc'] = sort_desc
-
-        url = '/api/query?' + urlencode(params)
-        if filter:
-            if not filter.startswith('('):
-                filter = '(' + filter + ')'
-            url += '&filter=' + filter.replace(' ', '+')
-
-        results = []
-        res = self.connection.request(url)
-        for elem in res.object:
-            if not elem.tag.endswith('Link'):
-                result = elem.attrib
-                result['type'] = elem.tag.split('}')[1]
-                results.append(result)
-        return results
+        return QueryResult(driver=self,
+                           type=type,
+                           filter=filter,
+                           sort_asc=sort_asc,
+                           sort_desc=sort_desc,
+                           page_size=page_size)
 
     def create_node(self, **kwargs):
         """
@@ -1405,20 +1484,16 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
                                       value.
         :type       ex_clone_timeout: ``int``
         """
-        name = kwargs['name']
-        image = kwargs['image']
+        name = kwargs.pop('name')
+        image = kwargs.pop('image')
         ex_vm_names = kwargs.get('ex_vm_names')
         ex_vm_cpu = kwargs.get('ex_vm_cpu')
         ex_vm_memory = kwargs.get('ex_vm_memory')
         ex_vm_script = kwargs.get('ex_vm_script')
         ex_vm_fence = kwargs.get('ex_vm_fence', None)
-        ex_network = kwargs.get('ex_network', None)
-        ex_vm_network = kwargs.get('ex_vm_network', None)
         ex_vm_ipmode = kwargs.get('ex_vm_ipmode', None)
         ex_deploy = kwargs.get('ex_deploy', True)
-        ex_vdc = kwargs.get('ex_vdc', None)
-        ex_clone_timeout = kwargs.get('ex_clone_timeout',
-                                      DEFAULT_TASK_COMPLETION_TIMEOUT)
+        ex_vdc = kwargs.pop('ex_vdc', None)
 
         self._validate_vm_names(ex_vm_names)
         self._validate_vm_cpu(ex_vm_cpu)
@@ -1427,27 +1502,18 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
         self._validate_vm_ipmode(ex_vm_ipmode)
         ex_vm_script = self._validate_vm_script(ex_vm_script)
 
-        # Some providers don't require a network link
-        if ex_network:
-            network_href = self._get_network_href(ex_network)
-            network_elem = self.connection.request(
-                get_url_path(network_href)).object
-        else:
-            network_elem = None
-
         vdc = self._get_vdc(ex_vdc)
 
         if self._is_node(image):
-            vapp_name, vapp_href = self._clone_node(name,
-                                                    image,
-                                                    vdc,
-                                                    ex_clone_timeout)
+            vapp_name, vapp_href = self._clone_node(name=name,
+                                                    source=image,
+                                                    vdc=vdc,
+                                                    **kwargs)
         else:
-            vapp_name, vapp_href = self._instantiate_node(name, image,
-                                                          network_elem,
-                                                          vdc, ex_vm_network,
-                                                          ex_vm_fence,
-                                                          ex_clone_timeout)
+            vapp_name, vapp_href = self._instantiate_node(name=name,
+                                                          image=image,
+                                                          vdc=vdc,
+                                                          **kwargs)
 
         self._change_vm_names(vapp_href, ex_vm_names)
         self._change_vm_cpu(vapp_href, ex_vm_cpu)
@@ -1477,15 +1543,11 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
         node = self._to_node(res.object)
         return node
 
-    def _instantiate_node(self, name, image, network_elem, vdc, vm_network,
-                          vm_fence, instantiate_timeout):
-        instantiate_xml = Instantiate_1_5_VAppXML(
+    def _instantiate_node(self, name, image, vdc, **kwargs):
+        instantiate_xml = self.instantiationCls(driver=self,
             name=name,
-            template=image.id,
-            network=network_elem,
-            vm_network=vm_network,
-            vm_fence=vm_fence
-        )
+            image=image,
+            **kwargs)
 
         # Instantiate VM and get identifier.
         headers = {
@@ -1503,10 +1565,10 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
 
         task_href = res.object.find(fixxpath(res.object, "Tasks/Task")).get(
             'href')
-        self._wait_for_task_completion(task_href, instantiate_timeout)
+        self._wait_for_task_completion(task_href, kwargs.get('ex_clone_timeout', DEFAULT_TASK_COMPLETION_TIMEOUT))
         return vapp_name, vapp_href
 
-    def _clone_node(self, name, sourceNode, vdc, clone_timeout):
+    def _clone_node(self, name, source, vdc, **kwargs):
         clone_xml = ET.Element(
             "CloneVAppParams",
             {'name': name, 'deploy': 'false', 'powerOn': 'false',
@@ -1514,8 +1576,8 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
              'xmlns:xsi': "http://www.w3.org/2001/XMLSchema-instance"}
         )
         ET.SubElement(clone_xml,
-                      'Description').text = 'Clone of ' + sourceNode.name
-        ET.SubElement(clone_xml, 'Source', {'href': sourceNode.id})
+                      'Description').text = 'Clone of ' + source.name
+        ET.SubElement(clone_xml, 'Source', {'href': source.id})
 
         headers = {
             'Content-Type': 'application/vnd.vmware.vcloud.cloneVAppParams+xml'
@@ -1531,7 +1593,7 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
 
         task_href = res.object.find(
             fixxpath(res.object, "Tasks/Task")).get('href')
-        self._wait_for_task_completion(task_href, clone_timeout)
+        self._wait_for_task_completion(task_href, kwargs.get('ex_clone_timeout', DEFAULT_TASK_COMPLETION_TIMEOUT))
 
         res = self.connection.request(get_url_path(vapp_href))
 
@@ -1651,21 +1713,20 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
         self._validate_vm_disk_size(vm_disk_size)
         self._add_vm_disk(vapp_or_vm_id, vm_disk_size)
 
-    @staticmethod
-    def _validate_vm_names(names):
+    def _validate_vm_names(self, names):
         if names is None:
             return
-        hname_re = re.compile(
-            '^(([a-zA-Z]|[a-zA-Z][a-zA-Z0-9]*)[\-])*([A-Za-z]|[A-Za-z][A-Za-z0-9]*[A-Za-z0-9])$')  # NOQA
+        hname_re = re.compile('^[a-zA-Z][a-zA-Z0-9]*([\-][A-Za-z0-9]+)*$')
+        max_length = self.max_vm_name_length()
         for name in names:
-            if len(name) > 15:
-                raise ValueError(
-                    'The VM name "' + name + '" is too long for the computer '
-                    'name (max 15 chars allowed).')
+            if 0 < max_length < len(name):
+                raise ValueError('The VM name "%s" is too long for the computer name (max %d chars allowed).' % (name, max_length))
             if not hname_re.match(name):
-                raise ValueError('The VM name "' + name + '" can not be '
-                                 'used. "' + name + '" is not a valid '
-                                 'computer name for the VM.')
+                raise ValueError('The VM name "' + name + '" can not be used. "' + name + '" is not a valid computer name for the VM.')
+
+    @staticmethod
+    def max_vm_name_length():
+        return 15
 
     @staticmethod
     def _validate_vm_memory(vm_memory):
@@ -2067,17 +2128,82 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
         storage = get_capacity_values(
             vdc_elm.find(fixxpath(vdc_elm, 'StorageCapacity')))
 
+        vm_quota = vdc_elm.findtext(fixxpath(vdc_elm, 'VmQuota'))
+        vm_quota = int(vm_quota)
+
+        enabled = vdc_elm.findtext(fixxpath(vdc_elm, 'IsEnabled'))
+        enabled = enabled == 'true'
+
         return Vdc(id=vdc_elm.get('href'),
                    name=vdc_elm.get('name'),
                    driver=self,
+                   enabled=enabled,
                    allocation_model=vdc_elm.findtext(
                        fixxpath(vdc_elm, 'AllocationModel')),
                    cpu=cpu,
                    memory=memory,
-                   storage=storage)
+                   storage=storage,
+                   vm_quota=vm_quota)
+
+
+class Instantiate_5_1_VAppXML(Instantiate_1_5_VAppXML):
+    def __init__(self, driver, name, image, **kwargs):
+        super(Instantiate_5_1_VAppXML, self).__init__(
+            driver, name, image, **kwargs
+        )
+        self._add_sourced_vm_instantiation_params(image, **kwargs)
+
+    def _add_sourced_vm_instantiation_params(self, image, **kwargs):
+        profiles = kwargs.get('ex_storage_profiles')
+        if not profiles:
+            return
+
+        # If this is just a single value apply to all vms
+        if not isinstance(profiles, list):
+            profiles = [profiles] * len(image.extra['vms'])
+
+        for idx, profile in enumerate(profiles):
+            vm = image.extra['vms'][idx]
+
+            params_elm = ET.SubElement(self.root, 'SourcedVmInstantiationParams')
+            ET.SubElement(params_elm, 'Source', {
+                'name': vm['name'],
+                'href': vm['id']
+            })
+            ET.SubElement(params_elm, 'StorageProfile', {
+                'name': profile.name,
+                'href': profile.id
+            })
+
+
+class StorageProfile(object):
+    def __init__(self, id, name, driver, enabled, default, limit, units):
+        self.id = id
+        self.name = name
+        self.driver = driver
+        self.enabled = enabled
+        self.default = default
+        self.limit = limit
+        self.units = units
+
+    def __repr__(self):
+        return '<StorageProfile: id=%s, name=%s, enabled=%s>' % (
+            self.id, self.name, self.enabled)
+
+
+class VCloud_5_1_Connection(VCloud_1_5_Connection):
+    @property
+    def _accept_header(self):
+        return 'application/*+xml;version=5.1'
 
 
 class VCloud_5_1_NodeDriver(VCloud_1_5_NodeDriver):
+    connectionCls = VCloud_5_1_Connection
+    instantiationCls = Instantiate_5_1_VAppXML
+
+    @staticmethod
+    def max_vm_name_length():
+        return 63
 
     @staticmethod
     def _validate_vm_memory(vm_memory):
@@ -2088,3 +2214,102 @@ class VCloud_5_1_NodeDriver(VCloud_1_5_NodeDriver):
             # MB
             raise ValueError(
                 '%s is not a valid vApp VM memory value' % (vm_memory))
+
+    def create_node(self, **kwargs):
+        """Creates and returns node. If the source image is:
+           - vApp template - a new vApp is instantiated from template
+           - existing vApp - a new vApp is cloned from the source vApp. Can not clone more vApps is parallel otherwise
+                             resource busy error is raised.
+
+
+        @inherits: L{VCloud_1_5_NodeDriver.create_node}
+
+        @keyword    ex_storage_profiles: The storage profile that will be used for the VMs instantiation. If
+                                        only a single value is provided this profile will be applied to all of the VMs.
+                                        If the value is a list it will be applied to the VMs in the order they are
+                                        defined in vApp template.
+        @type       ex_storage_profiles: L{StorageProfile} or C{list} of C{StorageProfile}
+        """
+        return super(VCloud_5_1_NodeDriver, self).create_node(**kwargs)
+
+    def _to_vdc(self, vdc_elm):
+        vdc = super(VCloud_5_1_NodeDriver, self)._to_vdc(vdc_elm)
+        vdc.storage = []
+        for profile_ref in vdc_elm.findall(fixxpath(vdc_elm, 'VdcStorageProfiles/VdcStorageProfile')):
+            profile_elm = self.connection.request(get_url_path(profile_ref.get('href'))).object
+            enabled = profile_elm.find(fixxpath(profile_elm, 'Enabled')).text == 'true'
+            default = profile_elm.find(fixxpath(profile_elm, 'Default')).text == 'true'
+            limit = int(profile_elm.findtext(fixxpath(profile_elm, 'Limit')))
+            units = profile_elm.findtext(fixxpath(profile_elm, 'Units'))
+            vdc.storage.append(StorageProfile(
+                id=profile_elm.get('href'),
+                name=profile_elm.get('name'),
+                driver=self,
+                enabled=enabled,
+                default=default,
+                limit=limit,
+                units=units))
+        return vdc
+
+    def list_images(self, location=None):
+        anemic_images = super(VCloud_5_1_NodeDriver, self).list_images(location)
+        images = []
+        for anemic_image in anemic_images:
+            image_elm = self.connection.request(get_url_path(anemic_image.id)).object
+            vms = []
+            for vm_elem in image_elm.findall(fixxpath(image_elm, 'Children/Vm')):
+                vms.append({
+                    'id': vm_elem.get('href'),
+                    'name': vm_elem.get('name')})
+            vdc_id = next(link.get('href') for link in image_elm.findall(fixxpath(image_elm, 'Link'))
+                          if link.get('type') == 'application/vnd.vmware.vcloud.vdc+xml')
+            vdc = next(vdc for vdc in self.vdcs if vdc.id == vdc_id)
+            extra = {'vdc': vdc.name, 'vms': vms}
+            images.append(NodeImage(anemic_image.id, anemic_image.name, self, extra))
+        return images
+
+    def _parse_metadata_entry(self, entry_elm):
+        # 5.1 changed the structure of elements to add type
+        key = entry_elm.findtext(fixxpath(entry_elm, 'Key'))
+        value = entry_elm.findtext(fixxpath(entry_elm, 'TypedValue/Value'))
+        xsi_type = entry_elm.find(fixxpath(entry_elm, 'TypedValue')).\
+            get('{http://www.w3.org/2001/XMLSchema-instance}type')
+        if xsi_type == 'MetadataBooleanValue':
+            value = (value == 'true')
+        elif xsi_type == 'MetadataNumberValue':
+            value = int(value)
+        elif xsi_type == 'MetadataDateTimeValue':
+            offset = int(value[-5:].replace(':', ''))
+            tz_delta = datetime.timedelta(hours=offset/100)
+            # example value = 2013-11-09T02:07:08.000-08:00
+            value = value[0:19]
+            # value = '2013-11-09T02:07:08'
+            value = datetime.datetime.strptime(value, '%Y-%m-%dT%H:%M:%S')
+            value += tz_delta
+        return key, value
+
+    def _add_metadata_entry_element(self, parent_elm, key, value):
+        entry = ET.SubElement(parent_elm, 'MetadataEntry')
+        key_elem = ET.SubElement(entry, 'Key')
+        key_elem.text = key
+
+        if isinstance(value, bool):
+            type = 'MetadataBooleanValue'
+            if value:
+                value = 'true'
+            else:
+                value = 'false'
+        elif isinstance(value, int):
+            type = 'MetadataNumberValue'
+            value = str(value)
+        elif isinstance(value, datetime.datetime):
+            type = 'MetadataDateTimeValue'
+            value = value.strftime('%Y-%m-%dT%H:%M:%S') + '.000-00:00'
+        else:
+            type = 'MetadataStringValue'
+            value = str(value)
+
+        typed_value_elem = ET.SubElement(entry, 'TypedValue')
+        typed_value_elem.set('xsi:type', type)
+        value_elem = ET.SubElement(typed_value_elem, 'Value')
+        value_elem.text = value
